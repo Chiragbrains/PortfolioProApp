@@ -32,6 +32,6 @@ jobs:
           
       - name: Deploy to AWS Amplify
         run: |
-          amplify pull --appId ${{ secrets.AWS_AMPLIFY_APP_ID }} --envName prod --yes
+          amplify pull --appId ${{ secrets.AWS_AMPLIFY_APP_ID }} --envName dev --yes
           amplify push --yes
           amplify publish --yes

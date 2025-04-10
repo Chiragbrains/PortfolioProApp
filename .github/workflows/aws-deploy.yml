@@ -21,17 +21,22 @@ jobs:
         with:
           node-version: '16'
           
-      - name: Install dependencies
+      - name: Install Global Dependencies
         run: |
-          npm install
+          npm install -g expo-cli
           npm install -g @aws-amplify/cli
           
-      - name: Build
+      - name: Install Project Dependencies
+        run: npm install
+          
+      - name: Build Web
         run: |
-          npm run build
+          expo build:web
           
       - name: Deploy to AWS Amplify
+        env:
+          AWS_AMPLIFY_APP_ID: ${{ secrets.AWS_AMPLIFY_APP_ID }}
         run: |
-          amplify pull --appId ${{ secrets.AWS_AMPLIFY_APP_ID }} --envName dev --yes
+          amplify pull --appId $AWS_AMPLIFY_APP_ID --envName dev --yes
           amplify push --yes
           amplify publish --yes

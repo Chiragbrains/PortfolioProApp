@@ -1,18 +1,17 @@
 {
-  "whyContinueWithGen1": "Prefer not to answer",
+  "providers": [
+    "awscloudformation"
+  ],
   "projectName": "StockPortfolioApp",
   "version": "3.1",
   "frontend": "javascript",
   "javascript": {
     "framework": "react-native",
     "config": {
-      "SourceDir": "src",
-      "DistributionDir": "/",
-      "BuildCommand": "npm run-script build",
-      "StartCommand": "npm run-script start"
+      "SourceDir": "/Users/chirag/Downloads/Test App - Coding/StockPortfolioApp/",
+      "DistributionDir": "web-build",
+      "BuildCommand": "expo build:web",
+      "StartCommand": "expo start"
     }
-  },
-  "providers": [
-    "awscloudformation"
-  ]
+  }
 }

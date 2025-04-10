@@ -38,5 +38,6 @@ jobs:
           AWS_AMPLIFY_APP_ID: ${{ secrets.AWS_AMPLIFY_APP_ID }}
         run: |
           amplify pull --appId $AWS_AMPLIFY_APP_ID --envName dev --yes
+          amplify add custom-domain --yes
           amplify push --yes
           amplify publish --yes

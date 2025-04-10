@@ -15,7 +15,16 @@
 // }
 
 {
-    "version": "0.2.0",
+    "name": "stockportfolioapp",
+    "version": "1.0.0",
+    "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "build": "expo build:web",
+    "eject": "expo eject"
+    },
     "configurations": [
       {
         "name": "Debug Expo",

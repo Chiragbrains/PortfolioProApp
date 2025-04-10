@@ -149,40 +149,49 @@ export const deleteStock = async (stockId) => {
 // Bulk import stocks
 export const bulkImportStocks = async (stocksData) => {
   try {
-    const formattedData = stocksData.map((stock) => ({
-      ticker: stock.ticker.toUpperCase(),
-      account: stock.account.trim(),
-      quantity: stock.quantity,
-      cost_basis: stock.costBasis,
-      type: stock.type.toLowerCase(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }));
-
-    const { error } = await supabase.from('stocks').insert(formattedData);
-    if (error) throw error;
+    const { data, error } = await supabase.from('stocks').insert(stocksData);
+    if (error) {
+      console.error('Error importing stocks:', error);
+      throw error;
+    }
+    console.log('Stocks imported successfully:', data);
+    return data;
   } catch (error) {
-    console.error('Error importing stocks:', error);
+    console.error('Error in bulkImportStocks:', error);
     throw new Error('Failed to import stocks.');
   }
 };
 
 // Clear all stocks
-export const clearAllStocks = async () => {
-  try {
-    const { data, error } = await supabase
-      .from('stocks')
-      .delete(); // Remove all rows without any condition
+// export const clearAllStocks = async () => {
+//   console.log("All stocks will be triggered");
+//   try {
+//     const { data, error } = await supabase.from("stocks").delete().neq("id", null); // Deletes all rows
+//     if (error) {
+//       console.error("Error clearing stocks:", error);
+//       throw error;
+//     }
+//     console.log("All stocks cleared successfully.");
+//     return data;
+//   } catch (error) {
+//     console.error("Error in clearAllStocks:", error);
+//     throw new Error("Failed to clear all stocks.");
+//   }
+// };
 
+// Truncate the stocks table
+export const truncateStocks = async () => {
+  console.log("Truncating stocks table...");
+  try {
+    const { data, error } = await supabase.rpc("truncate_stocks");
     if (error) {
-      console.error('Error clearing stocks:', error);
+      console.error("Error truncating stocks:", error);
       throw error;
     }
-
-    console.log('All stocks cleared successfully.');
+    console.log("Stocks table truncated successfully.");
     return data;
   } catch (error) {
-    console.error('Error in clearAllStocks:', error);
-    throw new Error('Failed to clear all stocks.');
+    console.error("Error in truncateStocks:", error);
+    throw new Error("Failed to truncate stocks table.");
   }
 };

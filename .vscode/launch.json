@@ -18,12 +18,14 @@
     "name": "stockportfolioapp",
     "version": "1.0.0",
     "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "build": "expo build:web",
-    "eject": "expo eject"
+        "scripts": {
+        "start": "expo start", // Starts the Expo development server
+        "android": "expo start --android", // Runs the app on an Android device/emulator
+        "ios": "expo start --ios", // Runs the app on an iOS simulator/device
+        "web": "expo start --web", // Runs the app in a web browser
+        "build:web": "npx expo export:web", // Builds the web version of the app
+        "eject": "expo eject" // Ejects the app to a bare React Native project
+        }
     },
     "configurations": [
       {

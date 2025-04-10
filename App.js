@@ -1,11 +1,11 @@
 // App.js
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, Alert, Platform, TextInput, Dimensions } from 'react-native';
+import { Modal, StyleSheet, Text, View, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, Alert, Platform, TextInput, Dimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
 import axios from 'axios';
-import { fetchStocks, addStock, updateStock, deleteStock, bulkImportStocks, clearAllStocks } from './stocksService';
+import { fetchStocks, addStock, updateStock, deleteStock, bulkImportStocks, clearAllStocks, truncateStocks } from './stocksService';
 import AddStockForm from './AddStockForm';
 
 // Helper function for number formatting with commas
@@ -629,6 +629,7 @@ export default function App() {
   const [isEditingStock, setIsEditingStock] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
+  const [isModalVisible, setIsModalVisible] = useState(false);
 
   // Load data from Supabase on app load
   useEffect(() => {
@@ -754,7 +755,7 @@ export default function App() {
               try {
                 const result = await bulkImportStocks(normalizedData);
                 console.log('Import result:', result);
-                
+              
                 if (result && result.length > 0) {
                   await loadStocks();
                   Alert.alert("Success", `Imported ${result.length} stocks successfully!`);
@@ -841,34 +842,22 @@ export default function App() {
     }
   };
   
-  const handleClearAllData = () => {
-    Alert.alert(
-      "Warning",
-      "This will delete ALL stocks from the database. This action cannot be undone.",
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        {
-          text: "Delete All",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setIsLoading(true);
-              await clearAllStocks();
-              await loadStocks(); // Reload (empty) stock list
-              Alert.alert("Success", "All stocks have been deleted from the database.");
-            } catch (error) {
-              console.error('Error clearing data:', error);
-              Alert.alert('Error', error.message);
-            } finally {
-              setIsLoading(false);
-            }
-          }
-        }
-      ]
-    );
+  const handleClearAllData = async () => {
+    console.log("Clear button clicked");
+    setIsModalVisible(true); // Show the modal
+  };
+
+  const confirmClearAllData = async () => {
+    try {
+      console.log("Delete All confirmed");
+      await truncateStocks();
+      console.log("All stocks cleared successfully");
+      await loadStocks(); // Reload the stock list or perform any other actions
+    } catch (error) {
+      console.error("Error clearing data:", error);
+    } finally {
+      setIsModalVisible(false); // Hide the modal
+    }
   };
 
   const validateData = (data) => {
@@ -1189,18 +1178,15 @@ const fetchYahooFinanceData = async (ticker) => {
             type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             copyToCacheDirectory: true,
           }).then(result => {
-            if (result.canceled === false) {
-              handleFileSelect(result.assets[0].uri);
+            if (result.type !== 'cancel') {
+              handleFileSelect(result.uri); // Use result.uri instead of result.assets[0].uri
             }
           }).catch(error => {
             console.error('Error picking document:', error);
             Alert.alert('Error', 'Failed to pick document. Please try again.');
           });
         }}
-        onClearDataPress={() => {
-          setMenuVisible(false);
-          handleClearAllData();
-        }}
+        onClearDataPress={handleClearAllData}
       />
       
       {/* Add/Edit Stock Form Modal */}
@@ -1215,6 +1201,37 @@ const fetchYahooFinanceData = async (ticker) => {
         initialValues={selectedStock}
         isEditing={isEditingStock}
       />
+
+      {/* Custom Modal */}
+      <Modal
+        visible={isModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Warning</Text>
+            <Text style={styles.modalMessage}>
+              This will delete ALL stocks from the database. This action cannot be undone.
+            </Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setIsModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.confirmButton]}
+                onPress={confirmClearAllData}
+              >
+                <Text style={styles.confirmButtonText}>Delete All</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1923,5 +1940,55 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     width: '100%',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContainer: {
+    width: '80%',
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 20,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  modalButton: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 5,
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+  cancelButton: {
+    backgroundColor: '#e0e0e0',
+  },
+  confirmButton: {
+    backgroundColor: '#ff6666',
+  },
+  cancelButtonText: {
+    color: '#333',
+    fontWeight: 'bold',
+  },
+  confirmButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
   },
 });

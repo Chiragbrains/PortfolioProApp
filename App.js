@@ -667,21 +667,10 @@ export default function App() {
       setIsLoading(true);
       setError(null);
   
-      // Read file content
-      let fileContent;
-      if (Platform.OS === 'web') {
-        const response = await fetch(fileUri);
-        const blob = await response.blob();
-        fileContent = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result.split(',')[1]);
-          reader.readAsDataURL(blob);
-        });
-      } else {
-        fileContent = await FileSystem.readAsStringAsync(fileUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-      }
+      // Read file content as base64
+      const fileContent = await FileSystem.readAsStringAsync(fileUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
   
       // Parse Excel file
       const workbook = XLSX.read(fileContent, { type: 'base64' });
@@ -695,7 +684,7 @@ export default function App() {
       const normalizedData = data.map((row, index) => {
         // Find column names case-insensitively
         const findColumn = (prefixes) => {
-          const key = Object.keys(row).find(k => 
+          const key = Object.keys(row).find(k =>
             prefixes.some(p => k.toLowerCase().includes(p.toLowerCase()))
           );
           return key ? row[key] : null;
@@ -723,7 +712,7 @@ export default function App() {
           costBasis: parseFloat(costBasis),
           type: String(type).toLowerCase(),
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
         };
   
         // Validate data types
@@ -741,21 +730,21 @@ export default function App() {
         `Tickers: ${normalizedData.map(s => s.ticker).join(', ')}\n\n` +
         `Continue with import?`,
         [
-          { 
-            text: "Cancel", 
+          {
+            text: "Cancel",
             style: "cancel",
             onPress: () => {
               setIsLoading(false);
               setError(null);
-            }
+            },
           },
-          { 
+          {
             text: "Import",
             onPress: async () => {
               try {
                 const result = await bulkImportStocks(normalizedData);
                 console.log('Import result:', result);
-              
+  
                 if (result && result.length > 0) {
                   await loadStocks();
                   Alert.alert("Success", `Imported ${result.length} stocks successfully!`);
@@ -768,8 +757,8 @@ export default function App() {
               } finally {
                 setIsLoading(false);
               }
-            }
-          }
+            },
+          },
         ]
       );
     } catch (error) {
@@ -778,7 +767,7 @@ export default function App() {
       setIsLoading(false);
     }
   };
-  
+    
   const handleAddStock = async (stockData) => {
     try {
       setIsLoading(true);

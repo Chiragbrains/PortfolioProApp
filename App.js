@@ -665,81 +665,104 @@ export default function App() {
     try {
       setIsLoading(true);
       setError(null);
-      
+  
+      // Read file content
       let fileContent;
       if (Platform.OS === 'web') {
-        // For web, fetch the file directly
         const response = await fetch(fileUri);
         const blob = await response.blob();
         fileContent = await new Promise((resolve) => {
           const reader = new FileReader();
-          reader.onload = () => {
-            resolve(reader.result.split(',')[1]); // Get the base64 content
-          };
+          reader.onload = () => resolve(reader.result.split(',')[1]);
           reader.readAsDataURL(blob);
         });
       } else {
-        // For native platforms, use FileSystem
         fileContent = await FileSystem.readAsStringAsync(fileUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+          encoding: FileSystem.EncodingType.Base64,
+        });
       }
-      
+  
+      // Parse Excel file
       const workbook = XLSX.read(fileContent, { type: 'base64' });
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
       const data = XLSX.utils.sheet_to_json(worksheet);
-      
-      // Validate the data
-      validateData(data);
-      
-      // Process the Excel data to normalize it
-      const normalizedData = data.map(row => {
-        let type = getValueByKeyPrefix(row, 'type');
-        if (!type) {
-          throw new Error(`Missing type for ${getValueByKeyPrefix(row, 'ticker')}. Type must be 'Stock', 'ETF', or 'CASH'.`);
-        }
-        type = type.toLowerCase();
-    
-    return {
-          id: row.id,
-          ticker: getValueByKeyPrefix(row, 'ticker'),
-          account: getValueByKeyPrefix(row, 'account'),
-          quantity: parseFloat(getValueByKeyPrefix(row, 'quantity') || 0),
-          costBasis: parseFloat(getValueByKeyPrefix(row, 'costbasis') || 0),
-          type: type
+  
+      console.log('Excel data:', data);
+  
+      // Process and validate each row
+      const normalizedData = data.map((row, index) => {
+        // Find column names case-insensitively
+        const findColumn = (prefixes) => {
+          const key = Object.keys(row).find(k => 
+            prefixes.some(p => k.toLowerCase().includes(p.toLowerCase()))
+          );
+          return key ? row[key] : null;
         };
+  
+        // Extract data with flexible column names
+        const ticker = findColumn(['ticker', 'symbol']);
+        const account = findColumn(['account', 'accountname']);
+        const quantity = findColumn(['quantity', 'shares', 'units']);
+        const costBasis = findColumn(['costbasis', 'cost', 'price']);
+        const type = findColumn(['type', 'securitytype']);
+  
+        // Validate required fields
+        if (!ticker) throw new Error(`Missing ticker in row ${index + 1}`);
+        if (!account) throw new Error(`Missing account in row ${index + 1}`);
+        if (!quantity) throw new Error(`Missing quantity in row ${index + 1}`);
+        if (!costBasis) throw new Error(`Missing cost basis in row ${index + 1}`);
+        if (!type) throw new Error(`Missing type in row ${index + 1}`);
+  
+        // Format the data
+        const processedRow = {
+          ticker: String(ticker).toUpperCase(),
+          account: String(account).trim(),
+          quantity: parseFloat(quantity),
+          costBasis: parseFloat(costBasis),
+          type: String(type).toLowerCase(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+  
+        // Validate data types
+        if (isNaN(processedRow.quantity)) throw new Error(`Invalid quantity in row ${index + 1}`);
+        if (isNaN(processedRow.costBasis)) throw new Error(`Invalid cost basis in row ${index + 1}`);
+  
+        console.log('Processed row:', processedRow);
+        return processedRow;
       });
-      
-      // Before proceeding, ask user for confirmation
+  
+      // Show confirmation dialog
       Alert.alert(
         "Import Confirmation",
-        `Are you sure you want to import ${normalizedData.length} stocks to the database?`,
+        `Found ${normalizedData.length} stocks to import:\n\n` +
+        `Tickers: ${normalizedData.map(s => s.ticker).join(', ')}\n\n` +
+        `Continue with import?`,
         [
-          {
-            text: "Cancel",
+          { 
+            text: "Cancel", 
             style: "cancel",
             onPress: () => {
               setIsLoading(false);
+              setError(null);
             }
           },
-          {
+          { 
             text: "Import",
             onPress: async () => {
               try {
-                // Import the normalized data to Supabase
-                await bulkImportStocks(normalizedData);
+                const result = await bulkImportStocks(normalizedData);
+                console.log('Import result:', result);
                 
-                // After successful import, load the stocks from Supabase
-                await loadStocks();
-                
-                Alert.alert(
-                  "Import Successful", 
-                  `Successfully imported ${normalizedData.length} stocks to the database.`
-                );
+                if (result && result.length > 0) {
+                  await loadStocks();
+                  Alert.alert("Success", `Imported ${result.length} stocks successfully!`);
+                } else {
+                  throw new Error('No data was imported');
+                }
               } catch (error) {
-                console.error('Error importing data to Supabase:', error);
-                setError(`Import error: ${error.message}`);
+                console.error('Import error:', error);
                 Alert.alert('Import Error', error.message);
               } finally {
                 setIsLoading(false);
@@ -749,8 +772,7 @@ export default function App() {
         ]
       );
     } catch (error) {
-      console.error('Error reading file:', error);
-      setError(error.message);
+      console.error('File processing error:', error);
       Alert.alert('Error', error.message);
       setIsLoading(false);
     }
@@ -850,42 +872,38 @@ export default function App() {
   };
 
   const validateData = (data) => {
+    console.log('Validating data:', data); // Debug log
+  
     if (!Array.isArray(data) || data.length === 0) {
       throw new Error('No data found in the Excel file');
     }
-    
-    // Check for required columns (case-insensitive)
-    const requiredColumns = ['ticker', 'account', 'quantity', 'costbasis', 'type'];
+  
     const firstRow = data[0];
-    const availableColumns = Object.keys(firstRow).map(key => key.toLowerCase());
-    
-    const missingColumns = requiredColumns.filter(col => 
-      !availableColumns.includes(col.toLowerCase())
-    );
-    
-    if (missingColumns.length > 0) {
-      throw new Error(`Missing required columns: ${missingColumns.join(', ')}`);
-    }
-    
-    // Check for data types and values
-    for (const row of data) {
-      const ticker = getValueByKeyPrefix(row, 'ticker');
-      const account = getValueByKeyPrefix(row, 'account');
-      const quantity = parseFloat(getValueByKeyPrefix(row, 'quantity'));
-      const costBasis = parseFloat(getValueByKeyPrefix(row, 'costbasis')); // Excel column name is costbasis
-      const type = getValueByKeyPrefix(row, 'type');
-      
-      if (!ticker) throw new Error('One or more rows is missing a ticker symbol');
-      if (!account) throw new Error('One or more rows is missing an account name');
-      if (isNaN(quantity) || quantity <= 0) throw new Error(`Invalid quantity for ${ticker}`);
-      if (isNaN(costBasis) || costBasis <= 0) throw new Error(`Invalid cost basis for ${ticker}`);
-      if (!type) throw new Error(`Missing type for ${ticker}. Type must be 'Stock', 'ETF', or 'CASH'.`);
-      
-      // Validate type values
-      if (!['stock', 'etf', 'cash'].includes(type.toLowerCase())) {
-        throw new Error(`Invalid security type "${type}" for ${ticker}. Type must be 'Stock', 'ETF', or 'CASH'.`);
+    console.log('First row:', firstRow); // Debug log
+  
+    // Get all column names in lowercase for case-insensitive comparison
+    const columns = Object.keys(firstRow).map(key => key.toLowerCase());
+    console.log('Available columns:', columns); // Debug log
+  
+    // Check for required columns with flexible naming
+    const requiredColumns = [
+      ['ticker', 'symbol'],
+      ['account', 'accountname'],
+      ['quantity', 'shares', 'units'],
+      ['costbasis', 'cost', 'price'],
+      ['type', 'securitytype']
+    ];
+  
+    requiredColumns.forEach(alternatives => {
+      const hasColumn = alternatives.some(col => 
+        columns.some(existingCol => existingCol.includes(col.toLowerCase()))
+      );
+      if (!hasColumn) {
+        throw new Error(`Missing required column. Need one of: ${alternatives.join(' or ')}`);
       }
-    }
+    });
+  
+    return true;
   };
   
   // Helper function to get a value from an object by a case-insensitive key prefix
@@ -1287,10 +1305,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     overflow: 'hidden',
     elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
+    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.2)'
   },
   summaryHeader: {
     flexDirection: 'row',

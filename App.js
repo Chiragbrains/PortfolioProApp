@@ -13,6 +13,9 @@ const formatNumber = (num) => {
   return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
 
+// Helper function for delay
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // Component for the header
 const Header = ({ onMenuPress }) => {
   return (
@@ -894,117 +897,74 @@ export default function App() {
     try {
       // Normalize the data (handle different column names)
       const normalizedData = data.map(row => {
-        // Get type and normalize it to lowercase for consistent handling
         let type = getValueByKeyPrefix(row, 'type');
         if (!type) {
           throw new Error(`Missing type for ${getValueByKeyPrefix(row, 'ticker')}. Type must be 'Stock', 'ETF', or 'CASH'.`);
         }
         type = type.toLowerCase();
-        
+
         return {
           id: row.id,
           ticker: getValueByKeyPrefix(row, 'ticker'),
           account: getValueByKeyPrefix(row, 'account'),
           quantity: parseFloat(getValueByKeyPrefix(row, 'quantity') || 0),
           costBasis: parseFloat(getValueByKeyPrefix(row, 'costbasis') || 0),
-          type: type
+          type: type,
         };
       });
-      
+
       // Get unique tickers
       const tickers = [...new Set(normalizedData.map(item => item.ticker))];
-      
-      // Fetch current prices
-      const stockDataResults = await fetchMultipleTickers(tickers);
-      
-      // Create a lookup map
+
+      // Fetch current prices sequentially with a delay
       const stockDataMap = {};
-      stockDataResults.forEach(data => {
-        if (data) stockDataMap[data.ticker] = data;
-      });
-      
+      for (const ticker of tickers) {
+        const stockData = await fetchYahooFinanceData(ticker); // Fetch data for the ticker
+        if (stockData) {
+          stockDataMap[ticker] = stockData;
+        }
+        await delay(5000); // Add a 5-second delay before the next request
+      }
+
       // Process each stock entry
       const processedStocks = normalizedData.map(stock => {
-        const marketData = stockDataMap[stock.ticker] || {
-          currentPrice: 0 // Initialize as 0, will handle fallback below
-        };
-        
+        const marketData = stockDataMap[stock.ticker] || { currentPrice: 0 };
+
         // Force CASH ticker to always have price of 1.0
-        let currentPrice = 0;
-        if (stock.ticker === "CASH") {
-          currentPrice = 1.0;
-          // Make sure any CASH ticker has 'cash' type
-          if (stock.type !== 'cash') {
-            console.warn(`Warning: Ticker CASH has type "${stock.type}" which doesn't match. This may cause classification issues.`);
-          }
-        } else {
-          // For non-CASH tickers, use fetched price or fallback
-          currentPrice = marketData.currentPrice || 0;
-          
-          // If price is 0 (not found), use a cost-basis-based fallback
-          if (currentPrice === 0) {
-            currentPrice = (stock.costBasis || 0) * 1.05; // Use cost basis + 5% as fallback
-            console.log(`Using fallback price for ${stock.ticker}: $${currentPrice.toFixed(2)}`);
-          }
+        let currentPrice = stock.ticker === "CASH" ? 1.0 : marketData.currentPrice || 0;
+
+        // If price is 0 (not found), use a cost-basis-based fallback
+        if (currentPrice === 0) {
+          currentPrice = (stock.costBasis || 0) * 1.05; // Use cost basis + 5% as fallback
+          console.log(`Using fallback price for ${stock.ticker}: $${currentPrice.toFixed(2)}`);
         }
-        
+
         const quantity = stock.quantity || 0;
         const costBasis = stock.costBasis || 0;
-        
+
         const currentValue = currentPrice * quantity;
         const totalCost = costBasis * quantity;
         const pnl = currentValue - totalCost;
         const pnlPercentage = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
-        
+
         return {
           ...stock,
           currentPrice,
           currentValue,
           pnl,
           pnlPercentage,
-          portfolioPercentage: 0 // Will be calculated after
+          portfolioPercentage: 0, // Will be calculated after
         };
       });
-      
+
       // Calculate portfolio percentage
       const totalPortfolioValue = processedStocks.reduce((sum, stock) => sum + (stock.currentValue || 0), 0);
       const stocksWithPortfolioPercentage = processedStocks.map(stock => ({
         ...stock,
-        portfolioPercentage: totalPortfolioValue > 0 ? ((stock.currentValue || 0) / totalPortfolioValue) * 100 : 0
+        portfolioPercentage: totalPortfolioValue > 0 ? ((stock.currentValue || 0) / totalPortfolioValue) * 100 : 0,
       }));
-      
-      // Process account data
-      const accountData = {};
-      stocksWithPortfolioPercentage.forEach(stock => {
-        if (!accountData[stock.account]) {
-          accountData[stock.account] = {
-            stocks: [],
-            totalValue: 0,
-            totalCost: 0,
-            pnl: 0,
-            pnlPercentage: 0
-          };
-        }
-        
-        accountData[stock.account].stocks.push(stock);
-        accountData[stock.account].totalValue += (stock.currentValue || 0);
-        accountData[stock.account].totalCost += ((stock.costBasis || 0) * (stock.quantity || 0));
-      });
-      
-      // Calculate PnL and PnL percentage for each account
-      Object.keys(accountData).forEach(accountName => {
-        const account = accountData[accountName];
-        account.pnl = account.totalValue - account.totalCost;
-        account.pnlPercentage = account.totalCost > 0 ? (account.pnl / account.totalCost) * 100 : 0;
-      });
-      
+
       setStocks(stocksWithPortfolioPercentage);
-      setAccounts(accountData);
-      
-      // Debug logging to verify IDs are preserved
-      console.log("Processed stocks sample with ID check:", 
-        stocksWithPortfolioPercentage.slice(0, 2).map(s => ({id: s.id, ticker: s.ticker}))
-      );
     } catch (error) {
       console.error('Error processing stock data:', error);
       setError(`Error processing data: ${error.message}`);
@@ -1015,8 +975,6 @@ export default function App() {
   };
   
 // Using fetchYahooFinanceData function to get stock prices
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const fetchYahooFinanceData = async (ticker) => {
   try {
     if (ticker === "CASH") {
@@ -1026,9 +984,14 @@ const fetchYahooFinanceData = async (ticker) => {
 
     console.log(`Fetching data for ${ticker} from Yahoo Finance...`);
 
-    const yahooFinanceUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d`;
+    try {
+      // Direct Yahoo Finance API call
+      const yahooFinanceUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d`;
+
+    // Use proxy for web to bypass CORS
     const proxyUrl = Platform.OS === 'web' ? 'https://cors-anywhere.herokuapp.com/' : '';
-    const response = await axios.get(proxyUrl + yahooFinanceUrl);
+    //const response = await axios.get(proxyUrl + yahooFinanceUrl);
+    const response = await axios.get(yahooFinanceUrl);
 
     if (response.data?.chart?.result?.[0]?.meta?.regularMarketPrice) {
       const price = response.data.chart.result[0].meta.regularMarketPrice;
@@ -1037,21 +1000,23 @@ const fetchYahooFinanceData = async (ticker) => {
     }
 
     throw new Error('Price not found');
+    } catch (yahooError) {
+      console.log(`Yahoo Finance failed for ${ticker}, trying Google Finance...`);
+      
+      // Try Google Finance as backup
+      const googlePrice = await getGoogleFinancePrice(ticker);
+      if (googlePrice && googlePrice > 0) {
+        console.log(`Successfully fetched Google price for ${ticker}: $${googlePrice}`);
+        return { ticker, currentPrice: googlePrice };
+      }
+    }
+
+    console.log(`No valid price found for ${ticker} from either source`);
+    return { ticker, currentPrice: 0, error: "No price available" };
   } catch (error) {
     console.error(`Error fetching price for ${ticker}:`, error.message);
     return { ticker, currentPrice: 0, error: error.message };
   }
-};
-
-// Fetch multiple tickers with a delay
-const fetchMultipleTickers = async (tickers) => {
-  const results = [];
-  for (const ticker of tickers) {
-    const data = await fetchYahooFinanceData(ticker);
-    results.push(data);
-    await delay(1000); // Add a 1-second delay between requests
-  }
-  return results;
 };
 
   // Function to get stock price from Google Finance
@@ -1305,33 +1270,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     overflow: 'hidden',
     elevation: 2,
-    boxShadow: '0px 1px 2px rgba(0, 0, 0, 0.2)',
-  },
-  modernAccountCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginVertical: 8,
-    marginHorizontal: 10,
-    elevation: 3,
-    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
-    borderLeftWidth: 5,
-    borderLeftColor: '#0066cc',
-  },
-  accountDetailCard: {
-    backgroundColor: 'white',
-    borderRadius: 5,
-    padding: 15,
-    marginVertical: 10,
-    elevation: 2,
-    boxShadow: '0px 1px 2px rgba(0, 0, 0, 0.2)',
-  },
-  addButton: {
-    backgroundColor: '#0066cc',
-    padding: 15,
-    borderRadius: 50,
-    elevation: 5,
-    boxShadow: '0px 2px 6px rgba(0, 0, 0, 0.3)',
+    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.2)'
   },
   summaryHeader: {
     flexDirection: 'row',
@@ -1501,7 +1440,10 @@ const styles = StyleSheet.create({
     padding: 15,
     marginVertical: 10,
     elevation: 2,
-    boxShadow: '0px 1px 2px rgba(0, 0, 0, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
   },
   accountDetailName: {
     fontSize: 20,
@@ -1552,7 +1494,10 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 50,
     elevation: 5,
-    boxShadow: '0px 2px 6px rgba(0, 0, 0, 0.3)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
   },
   addButtonText: {
     color: 'white',
@@ -1657,7 +1602,10 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     marginHorizontal: 10,
     elevation: 3,
-    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
     borderLeftWidth: 5,
     borderLeftColor: '#0066cc',
   },

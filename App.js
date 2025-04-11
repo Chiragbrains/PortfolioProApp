@@ -5,7 +5,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
 import axios from 'axios';
-import { fetchStocks, addStock, updateStock, deleteStock, bulkImportStocks, clearAllStocks, truncateStocks } from './stocksService';
+import { fetchStocks, addStock, updateStock, deleteStock, bulkImportStocks, clearAllStocks, truncateStocks, getCachedStockData, updateStockCache } from './stocksService';
 import AddStockForm from './AddStockForm';
 
 // Helper function for number formatting with commas
@@ -620,6 +620,17 @@ const AccountDetailView = ({ accounts, isLoading, handleEditStock, searchTerm, s
   );
 };
 
+// Component for popup notification
+const PopupNotification = ({ visible, message }) => {
+  if (!visible) return null;
+
+  return (
+    <View style={styles.popupContainer}>
+      <Text style={styles.popupText}>{message}</Text>
+    </View>
+  );
+};
+
 // Main App component
 export default function App() {
   const [stocks, setStocks] = useState([]);
@@ -633,6 +644,8 @@ export default function App() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [isPopupVisible, setIsPopupVisible] = useState(false);
+  const [popupMessage, setPopupMessage] = useState('');
 
   // Load data from Supabase on app load
   useEffect(() => {
@@ -650,12 +663,21 @@ export default function App() {
     try {
       setIsLoading(true);
       setError(null);
-      
-      // Fetch stocks from Supabase
+
+      // Fetch stocks from Supabase or your data source
       const stockData = await fetchStocks();
-      
-      // Process the stock data
+
+      // Process the stock data (fetch prices from Yahoo in the background)
       await processStockData(stockData);
+
+      // Show the popup when refresh is complete
+      setPopupMessage('Stock prices refreshed successfully!');
+      setIsPopupVisible(true);
+
+      // Hide the popup after 3 seconds
+      setTimeout(() => {
+        setIsPopupVisible(false);
+      }, 3000);
     } catch (error) {
       console.error('Error loading stocks:', error);
       setError(error.message);
@@ -936,7 +958,7 @@ export default function App() {
 
         if (i + 5 < tickers.length) {
           console.log('Waiting for 2 minutes before processing the next chunk...');
-          await delay(120000); // Wait for 2 minutes (120,000 ms) before processing the next chunk
+          await delay(100); // Wait for 2 minutes (120,000 ms) before processing the next chunk
         }
       }
 
@@ -996,36 +1018,40 @@ const fetchYahooFinanceData = async (ticker) => {
       return { ticker, currentPrice: 1.0 };
     }
 
-    console.log(`Fetching data for ${ticker} from Yahoo Finance...`);
+    console.log(`Checking cache for ${ticker}...`);
 
-    try {
-      // Direct Yahoo Finance API call
-      const yahooFinanceUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d`;
+    // Fetch cached data
+    const cachedData = await getCachedStockData(ticker);
+    if (cachedData) {
+      const lastRefreshed = new Date(cachedData.last_refreshed);
+      const now = new Date();
 
-    // Use proxy for web to bypass CORS
+      // Use cached data if it was refreshed within the last 24 hours
+      const hoursSinceLastRefresh = (now - lastRefreshed) / (1000 * 60 * 60);
+      if (hoursSinceLastRefresh < 24) {
+        console.log(`Using cached data for ${ticker}: $${cachedData.current_price}`);
+        return { ticker, currentPrice: cachedData.current_price };
+      }
+    }
+
+    console.log(`Fetching fresh data for ${ticker} from Yahoo Finance...`);
+
+    // Fetch fresh data from Yahoo Finance
+    const yahooFinanceUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d`;
     const proxyUrl = Platform.OS === 'web' ? 'https://cors-anywhere.herokuapp.com/' : '';
     const response = await axios.get(proxyUrl + yahooFinanceUrl);
-    
+
     if (response.data?.chart?.result?.[0]?.meta?.regularMarketPrice) {
       const price = response.data.chart.result[0].meta.regularMarketPrice;
       console.log(`Successfully fetched Yahoo price for ${ticker}: $${price}`);
+
+      // Update the cache
+      await updateStockCache(ticker, price);
+
       return { ticker, currentPrice: price };
     }
 
     throw new Error('Price not found');
-    } catch (yahooError) {
-      console.log(`Yahoo Finance failed for ${ticker}, trying Google Finance...`);
-      
-      // Try Google Finance as backup
-      const googlePrice = await getGoogleFinancePrice(ticker);
-      if (googlePrice && googlePrice > 0) {
-        console.log(`Successfully fetched Google price for ${ticker}: $${googlePrice}`);
-        return { ticker, currentPrice: googlePrice };
-      }
-    }
-
-    console.log(`No valid price found for ${ticker} from either source`);
-    return { ticker, currentPrice: 0, error: "No price available" };
   } catch (error) {
     console.error(`Error fetching price for ${ticker}:`, error.message);
     return { ticker, currentPrice: 0, error: error.message };
@@ -1193,6 +1219,9 @@ const fetchYahooFinanceData = async (ticker) => {
           </View>
         </View>
       </Modal>
+
+      {/* Popup Notification */}
+      <PopupNotification visible={isPopupVisible} message={popupMessage} />
     </SafeAreaView>
   );
 }
@@ -1951,5 +1980,24 @@ const styles = StyleSheet.create({
   confirmButtonText: {
     color: 'white',
     fontWeight: 'bold',
+  },
+  popupContainer: {
+    position: 'absolute',
+    top: 50,
+    left: '10%',
+    right: '10%',
+    backgroundColor: '#0066cc',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    elevation: 5,
+  },
+  popupText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });

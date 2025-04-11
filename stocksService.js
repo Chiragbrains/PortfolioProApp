@@ -195,3 +195,47 @@ export const truncateStocks = async () => {
     throw new Error("Failed to truncate stocks table.");
   }
 };
+
+// Fetch cached stock data
+export const getCachedStockData = async (ticker) => {
+  try {
+    const { data, error } = await supabase
+      .from('stock_cache')
+      .select('*')
+      .eq('ticker', ticker)
+      .single();
+
+    if (error) {
+      console.error(`Error fetching cached data for ${ticker}:`, error.message);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error(`Unexpected error fetching cached data for ${ticker}:`, error.message);
+    return null;
+  }
+};
+
+// Update or insert stock data into the cache
+export const updateStockCache = async (ticker, currentPrice) => {
+  try {
+    const { data, error } = await supabase
+      .from('stock_cache')
+      .upsert({
+        ticker,
+        current_price: currentPrice, // Ensure the column name matches your Supabase table
+        last_refreshed: new Date().toISOString(), // Ensure the column name matches your Supabase table
+      });
+
+    if (error) {
+      console.error(`Error updating cache for ${ticker}:`, error.message);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error(`Unexpected error updating cache for ${ticker}:`, error.message);
+    return null;
+  }
+};

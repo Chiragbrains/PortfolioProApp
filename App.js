@@ -915,8 +915,7 @@ export default function App() {
       const tickers = [...new Set(normalizedData.map(item => item.ticker))];
       
       // Fetch current prices
-      const stockDataPromises = tickers.map(fetchYahooFinanceData);
-      const stockDataResults = await Promise.all(stockDataPromises);
+      const stockDataResults = await fetchMultipleTickers(tickers);
       
       // Create a lookup map
       const stockDataMap = {};
@@ -1016,6 +1015,8 @@ export default function App() {
   };
   
 // Using fetchYahooFinanceData function to get stock prices
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const fetchYahooFinanceData = async (ticker) => {
   try {
     if (ticker === "CASH") {
@@ -1025,11 +1026,7 @@ const fetchYahooFinanceData = async (ticker) => {
 
     console.log(`Fetching data for ${ticker} from Yahoo Finance...`);
 
-    try {
-      // Direct Yahoo Finance API call
-      const yahooFinanceUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d`;
-
-    // Use proxy for web to bypass CORS
+    const yahooFinanceUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d`;
     const proxyUrl = Platform.OS === 'web' ? 'https://cors-anywhere.herokuapp.com/' : '';
     const response = await axios.get(proxyUrl + yahooFinanceUrl);
 
@@ -1040,23 +1037,21 @@ const fetchYahooFinanceData = async (ticker) => {
     }
 
     throw new Error('Price not found');
-    } catch (yahooError) {
-      console.log(`Yahoo Finance failed for ${ticker}, trying Google Finance...`);
-      
-      // Try Google Finance as backup
-      const googlePrice = await getGoogleFinancePrice(ticker);
-      if (googlePrice && googlePrice > 0) {
-        console.log(`Successfully fetched Google price for ${ticker}: $${googlePrice}`);
-        return { ticker, currentPrice: googlePrice };
-      }
-    }
-
-    console.log(`No valid price found for ${ticker} from either source`);
-    return { ticker, currentPrice: 0, error: "No price available" };
   } catch (error) {
     console.error(`Error fetching price for ${ticker}:`, error.message);
     return { ticker, currentPrice: 0, error: error.message };
   }
+};
+
+// Fetch multiple tickers with a delay
+const fetchMultipleTickers = async (tickers) => {
+  const results = [];
+  for (const ticker of tickers) {
+    const data = await fetchYahooFinanceData(ticker);
+    results.push(data);
+    await delay(1000); // Add a 1-second delay between requests
+  }
+  return results;
 };
 
   // Function to get stock price from Google Finance

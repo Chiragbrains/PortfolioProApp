@@ -916,14 +916,28 @@ export default function App() {
       // Get unique tickers
       const tickers = [...new Set(normalizedData.map(item => item.ticker))];
 
-      // Fetch current prices sequentially with a delay
+      // Helper function to process a chunk of tickers
+      const processChunk = async (chunk) => {
+        const stockDataPromises = chunk.map(fetchYahooFinanceData); // Fetch data for all tickers in the chunk
+        const stockDataResults = await Promise.all(stockDataPromises); // Wait for all requests in the chunk to complete
+        return stockDataResults;
+      };
+
+      // Fetch current prices in chunks of 5 tickers
       const stockDataMap = {};
-      for (const ticker of tickers) {
-        const stockData = await fetchYahooFinanceData(ticker); // Fetch data for the ticker
-        if (stockData) {
-          stockDataMap[ticker] = stockData;
+      for (let i = 0; i < tickers.length; i += 5) {
+        const chunk = tickers.slice(i, i + 5); // Get the next chunk of 5 tickers
+        console.log(`Processing chunk: ${chunk.join(', ')}`);
+
+        const stockDataResults = await processChunk(chunk); // Process the chunk
+        stockDataResults.forEach(data => {
+          if (data) stockDataMap[data.ticker] = data; // Add the results to the stockDataMap
+        });
+
+        if (i + 5 < tickers.length) {
+          console.log('Waiting for 2 minutes before processing the next chunk...');
+          await delay(120000); // Wait for 2 minutes (120,000 ms) before processing the next chunk
         }
-        await delay(5000); // Add a 5-second delay before the next request
       }
 
       // Process each stock entry

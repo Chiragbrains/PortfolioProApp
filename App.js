@@ -1027,20 +1027,19 @@ const fetchYahooFinanceData = async (ticker) => {
 
     try {
       // Direct Yahoo Finance API call
-      const response = await axios.get(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d`,
-        {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-          }
-        }
-      );
+      const yahooFinanceUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d`;
 
-      if (response.data?.chart?.result?.[0]?.meta?.regularMarketPrice) {
-        const price = response.data.chart.result[0].meta.regularMarketPrice;
-        console.log(`Successfully fetched Yahoo price for ${ticker}: $${price}`);
-        return { ticker, currentPrice: price };
-      }
+    // Use proxy for web to bypass CORS
+    const proxyUrl = Platform.OS === 'web' ? 'https://cors-anywhere.herokuapp.com/' : '';
+    const response = await axios.get(proxyUrl + yahooFinanceUrl);
+
+    if (response.data?.chart?.result?.[0]?.meta?.regularMarketPrice) {
+      const price = response.data.chart.result[0].meta.regularMarketPrice;
+      console.log(`Successfully fetched Yahoo price for ${ticker}: $${price}`);
+      return { ticker, currentPrice: price };
+    }
+
+    throw new Error('Price not found');
     } catch (yahooError) {
       console.log(`Yahoo Finance failed for ${ticker}, trying Google Finance...`);
       
@@ -1311,7 +1310,33 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     overflow: 'hidden',
     elevation: 2,
-    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.2)'
+    boxShadow: '0px 1px 2px rgba(0, 0, 0, 0.2)',
+  },
+  modernAccountCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 8,
+    marginHorizontal: 10,
+    elevation: 3,
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
+    borderLeftWidth: 5,
+    borderLeftColor: '#0066cc',
+  },
+  accountDetailCard: {
+    backgroundColor: 'white',
+    borderRadius: 5,
+    padding: 15,
+    marginVertical: 10,
+    elevation: 2,
+    boxShadow: '0px 1px 2px rgba(0, 0, 0, 0.2)',
+  },
+  addButton: {
+    backgroundColor: '#0066cc',
+    padding: 15,
+    borderRadius: 50,
+    elevation: 5,
+    boxShadow: '0px 2px 6px rgba(0, 0, 0, 0.3)',
   },
   summaryHeader: {
     flexDirection: 'row',
@@ -1481,10 +1506,7 @@ const styles = StyleSheet.create({
     padding: 15,
     marginVertical: 10,
     elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
+    boxShadow: '0px 1px 2px rgba(0, 0, 0, 0.2)',
   },
   accountDetailName: {
     fontSize: 20,
@@ -1535,10 +1557,7 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 50,
     elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
+    boxShadow: '0px 2px 6px rgba(0, 0, 0, 0.3)',
   },
   addButtonText: {
     color: 'white',
@@ -1643,10 +1662,7 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     marginHorizontal: 10,
     elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
     borderLeftWidth: 5,
     borderLeftColor: '#0066cc',
   },

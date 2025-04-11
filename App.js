@@ -990,9 +990,8 @@ const fetchYahooFinanceData = async (ticker) => {
 
     // Use proxy for web to bypass CORS
     const proxyUrl = Platform.OS === 'web' ? 'https://cors-anywhere.herokuapp.com/' : '';
-    //const response = await axios.get(proxyUrl + yahooFinanceUrl);
-    const response = await axios.get(yahooFinanceUrl);
-
+    const response = await axios.get(proxyUrl + yahooFinanceUrl);
+    
     if (response.data?.chart?.result?.[0]?.meta?.regularMarketPrice) {
       const price = response.data.chart.result[0].meta.regularMarketPrice;
       console.log(`Successfully fetched Yahoo price for ${ticker}: $${price}`);

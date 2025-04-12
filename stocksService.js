@@ -149,13 +149,19 @@ export const deleteStock = async (stockId) => {
 // Bulk import stocks
 export const bulkImportStocks = async (stocks) => {
   try {
-    console.log('Starting bulk import with stocks:', stocks); // Debug log
+    console.log('Starting bulk import with stocks:', stocks.length);
+
+    // First validate the input
+    if (!stocks || !Array.isArray(stocks) || stocks.length === 0) {
+      throw new Error('Invalid input: empty or invalid stocks array');
+    }
 
     const { data, error } = await supabase
       .from('stocks')
       .upsert(stocks, {
-        onConflict: 'ticker,account', // Handle duplicates by ticker and account
-        returning: true // Return the inserted/updated rows
+        onConflict: 'ticker,account',
+        returning: 'representation', // Changed from 'true' to 'representation'
+        ignoreDuplicates: false     // Will update existing records
       });
 
     if (error) {
@@ -163,7 +169,28 @@ export const bulkImportStocks = async (stocks) => {
       throw new Error('Failed to import stocks: ' + error.message);
     }
 
-    console.log('Successfully imported stocks:', data); // Debug log
+    // Log the response for debugging
+    console.log('Upsert response:', { data, error });
+
+    // Even if no error, check if we got data back
+    if (!data || data.length === 0) {
+      // Data was imported but not returned, fetch the latest records
+      const { data: latestData, error: fetchError } = await supabase
+        .from('stocks')
+        .select('*')
+        .in('ticker', stocks.map(s => s.ticker))
+        .in('account', stocks.map(s => s.account));
+
+      if (fetchError) {
+        console.error('Error fetching updated records:', fetchError);
+        throw new Error('Failed to verify imported stocks');
+      }
+
+      console.log('Successfully imported and fetched stocks:', latestData?.length || 0);
+      return latestData;
+    }
+
+    console.log('Successfully imported stocks:', data.length);
     return data;
   } catch (error) {
     console.error('Unexpected error in bulkImportStocks:', error);

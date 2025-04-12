@@ -631,6 +631,37 @@ const PopupNotification = ({ visible, message }) => {
   );
 };
 
+// Add this component before the App component
+const ImportConfirmationModal = ({ visible, data, onConfirm, onCancel }) => {
+  if (!visible) return null;
+
+  return (
+    <View style={styles.modalOverlay}>
+      <View style={styles.modalContainer}>
+        <Text style={styles.modalTitle}>Import Confirmation</Text>
+        <Text style={styles.modalMessage}>
+          Found {data?.length || 0} stocks to import:{'\n\n'}
+          Tickers: {data?.map(s => s.ticker).join(', ')}
+        </Text>
+        <View style={styles.modalButtons}>
+          <TouchableOpacity 
+            style={[styles.modalButton, styles.cancelButton]}
+            onPress={onCancel}
+          >
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.modalButton, styles.confirmButton]}
+            onPress={onConfirm}
+          >
+            <Text style={styles.confirmButtonText}>Import</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+};
+
 // Main App component
 export default function App() {
   const [stocks, setStocks] = useState([]);
@@ -646,6 +677,8 @@ export default function App() {
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isPopupVisible, setIsPopupVisible] = useState(false);
   const [popupMessage, setPopupMessage] = useState('');
+  const [isImportModalVisible, setIsImportModalVisible] = useState(false);
+  const [importData, setImportData] = useState(null);
 
   // Load data from Supabase on app load
   useEffect(() => {
@@ -803,7 +836,7 @@ export default function App() {
           ticker: String(ticker).toUpperCase(),
           account: String(account).trim(),
           quantity: parseFloat(quantity),
-          costBasis: parseFloat(costBasis),
+          cost_basis: parseFloat(costBasis),
           type: String(type).toLowerCase(),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -815,57 +848,12 @@ export default function App() {
 
       console.log(`Normalized ${normalizedData.length} rows`); // Debug log
 
-      // Show confirmation dialog
-      Alert.alert(
-        "Import Confirmation",
-        `Found ${normalizedData.length} stocks to import:\n\n` +
-        `Tickers: ${normalizedData.map(s => s.ticker).join(', ')}\n\n` +
-        `Continue with import?`,
-        [
-          { 
-            text: "Cancel", 
-            style: "cancel",
-            onPress: () => {
-              console.log('Import cancelled by user');
-              setIsLoading(false);
-            }
-          },
-          {
-            text: "Import",
-            onPress: async () => {
-              try {
-                console.log('User confirmed import, starting...');
-                setIsLoading(true);
-                
-                const result = await bulkImportStocks(normalizedData);
-                console.log('Import completed:', result);
-
-                if (result && result.length > 0) {
-                  await loadStocks();
-                  Alert.alert(
-                    "Success", 
-                    `Imported ${result.length} stocks successfully!`,
-                    [{ 
-                      text: "OK",
-                      onPress: () => setIsLoading(false)
-                    }]
-                  );
-                } else {
-                  throw new Error('No data was imported');
-                }
-              } catch (error) {
-                console.error('Import error:', error);
-                Alert.alert('Import Error', error.message);
-                setIsLoading(false);
-              }
-            }
-          }
-        ],
-        { cancelable: false }
-      );
+      // Show confirmation modal instead of Alert
+      setImportData(normalizedData);
+      setIsImportModalVisible(true);
     } catch (error) {
       console.error('Excel processing error:', error);
-      Alert.alert('Error', error.message);
+      setError(error.message);
     }
   };
     
@@ -1062,7 +1050,34 @@ export default function App() {
         portfolioPercentage: totalPortfolioValue > 0 ? ((stock.currentValue || 0) / totalPortfolioValue) * 100 : 0,
       }));
 
+      // Group stocks by account
+      const accountsMap = {};
+      stocksWithPortfolioPercentage.forEach(stock => {
+        if (!accountsMap[stock.account]) {
+          accountsMap[stock.account] = {
+            stocks: [],
+            totalValue: 0,
+            totalCost: 0,
+            pnl: 0,
+            pnlPercentage: 0
+          };
+        }
+        accountsMap[stock.account].stocks.push(stock);
+        accountsMap[stock.account].totalValue += stock.currentValue || 0;
+        accountsMap[stock.account].totalCost += (stock.costBasis * stock.quantity) || 0;
+      });
+
+      // Calculate P&L for each account
+      Object.keys(accountsMap).forEach(accountName => {
+        const account = accountsMap[accountName];
+        account.pnl = account.totalValue - account.totalCost;
+        account.pnlPercentage = account.totalCost > 0 ? (account.pnl / account.totalCost) * 100 : 0;
+      });
+
+      // Update both states
       setStocks(stocksWithPortfolioPercentage);
+      setAccounts(accountsMap);
+
     } catch (error) {
       console.error('Error processing stock data:', error);
       setError(`Error processing data: ${error.message}`);
@@ -1304,6 +1319,42 @@ const fetchYahooFinanceData = async (ticker) => {
           </View>
         </View>
       </Modal>
+
+      {/* Import Confirmation Modal */}
+      <ImportConfirmationModal
+        visible={isImportModalVisible}
+        data={importData}
+        onCancel={() => {
+          setIsImportModalVisible(false);
+          setImportData(null);
+          setIsLoading(false);
+        }}
+        onConfirm={async () => {
+          try {
+            console.log('User confirmed import, starting...');
+            setIsLoading(true);
+            
+            const result = await bulkImportStocks(importData);
+            console.log('Import completed:', result);
+
+            if (result && result.length > 0) {
+              await loadStocks();
+              setPopupMessage(`Imported ${result.length} stocks successfully!`);
+              setIsPopupVisible(true);
+              setTimeout(() => setIsPopupVisible(false), 3000);
+            } else {
+              throw new Error('No data was imported');
+            }
+          } catch (error) {
+            console.error('Import error:', error);
+            setError(error.message);
+          } finally {
+            setIsImportModalVisible(false);
+            setImportData(null);
+            setIsLoading(false);
+          }
+        }}
+      />
 
       {/* Popup Notification */}
       <PopupNotification visible={isPopupVisible} message={popupMessage} />
@@ -2017,17 +2068,22 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   modalOverlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    zIndex: 1000,
   },
   modalContainer: {
-    width: '80%',
     backgroundColor: 'white',
     borderRadius: 10,
     padding: 20,
-    alignItems: 'center',
+    width: '80%',
+    maxWidth: 500,
   },
   modalTitle: {
     fontSize: 18,
@@ -2035,36 +2091,24 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   modalMessage: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
     marginBottom: 20,
   },
   modalButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
+    justifyContent: 'flex-end',
   },
   modalButton: {
-    flex: 1,
+    marginLeft: 10,
     padding: 10,
     borderRadius: 5,
+    minWidth: 80,
     alignItems: 'center',
-    marginHorizontal: 5,
   },
   cancelButton: {
     backgroundColor: '#e0e0e0',
   },
   confirmButton: {
-    backgroundColor: '#ff6666',
-  },
-  cancelButtonText: {
-    color: '#333',
-    fontWeight: 'bold',
-  },
-  confirmButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
+    backgroundColor: '#0066cc',
   },
   popupContainer: {
     position: 'absolute',

@@ -687,50 +687,119 @@ export default function App() {
     }
   };
 
-  const handleFileSelect = async (fileUri) => {
+  const handleFileSelect = async (result) => {
     try {
       setIsLoading(true);
       setError(null);
+
+      console.log('File select triggered'); // Debug log
+      console.log('Result:', result); // Debug log
+
+      if (Platform.OS === 'web') {
+        // Web platform handling
+        const file = result.file;
+        console.log('Processing web file:', file.name); // Debug log
+
+        const reader = new FileReader();
+        
+        reader.onload = async (e) => {
+          try {
+            console.log('FileReader loaded'); // Debug log
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            
+            console.log('Workbook sheets:', workbook.SheetNames); // Debug log
+            
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+            
+            console.log('Parsed Excel data:', jsonData); // Debug log
+
+            if (!jsonData || jsonData.length === 0) {
+              throw new Error('No data found in the Excel file');
+            }
+
+            await processExcelData(jsonData);
+          } catch (error) {
+            console.error('Error processing Excel file:', error);
+            Alert.alert('Error', error.message);
+          } finally {
+            setIsLoading(false);
+          }
+        };
+
+        reader.onerror = (error) => {
+          console.error('FileReader error:', error); // Debug log
+          Alert.alert('Error', 'Failed to read the file');
+          setIsLoading(false);
+        };
+
+        reader.readAsArrayBuffer(file);
+      } else {
+        // Mobile platform handling
+        console.log('Processing mobile file:', result.uri); // Debug log
+        
+        const base64Content = await FileSystem.readAsStringAsync(result.uri, {
+          encoding: FileSystem.EncodingType.Base64
+        });
+        
+        const workbook = XLSX.read(base64Content, { type: 'base64' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        
+        console.log('Parsed Excel data:', jsonData); // Debug log
+        
+        await processExcelData(jsonData);
+      }
+    } catch (error) {
+      console.error('File processing error:', error);
+      Alert.alert('Error', error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
   
-      // Read file content as base64
-      const fileContent = await FileSystem.readAsStringAsync(fileUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-  
-      // Parse Excel file
-      const workbook = XLSX.read(fileContent, { type: 'base64' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const data = XLSX.utils.sheet_to_json(worksheet);
-  
-      console.log('Excel data:', data);
-  
-      // Process and validate each row
+  // Helper function to process Excel data
+  const processExcelData = async (data) => {
+    try {
+      console.log('Starting to process Excel data...'); // Debug log
+
+      if (!data || data.length === 0) {
+        throw new Error('No data found in the Excel file');
+      }
+
+      // Log the first row to see the column structure
+      console.log('Sample row:', data[0]);
+
       const normalizedData = data.map((row, index) => {
         // Find column names case-insensitively
         const findColumn = (prefixes) => {
           const key = Object.keys(row).find(k =>
             prefixes.some(p => k.toLowerCase().includes(p.toLowerCase()))
           );
+          if (!key) {
+            console.log(`Could not find column for prefixes: ${prefixes.join(', ')}`);
+            console.log('Available columns:', Object.keys(row));
+          }
           return key ? row[key] : null;
         };
-  
-        // Extract data with flexible column names
+
         const ticker = findColumn(['ticker', 'symbol']);
         const account = findColumn(['account', 'accountname']);
         const quantity = findColumn(['quantity', 'shares', 'units']);
         const costBasis = findColumn(['costbasis', 'cost', 'price']);
         const type = findColumn(['type', 'securitytype']);
-  
+
         // Validate required fields
         if (!ticker) throw new Error(`Missing ticker in row ${index + 1}`);
         if (!account) throw new Error(`Missing account in row ${index + 1}`);
         if (!quantity) throw new Error(`Missing quantity in row ${index + 1}`);
         if (!costBasis) throw new Error(`Missing cost basis in row ${index + 1}`);
         if (!type) throw new Error(`Missing type in row ${index + 1}`);
-  
-        // Format the data
-        const processedRow = {
+
+        const normalized = {
           ticker: String(ticker).toUpperCase(),
           account: String(account).trim(),
           quantity: parseFloat(quantity),
@@ -739,15 +808,13 @@ export default function App() {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
-  
-        // Validate data types
-        if (isNaN(processedRow.quantity)) throw new Error(`Invalid quantity in row ${index + 1}`);
-        if (isNaN(processedRow.costBasis)) throw new Error(`Invalid cost basis in row ${index + 1}`);
-  
-        console.log('Processed row:', processedRow);
-        return processedRow;
+
+        console.log(`Processed row ${index + 1}:`, normalized); // Debug log
+        return normalized;
       });
-  
+
+      console.log(`Normalized ${normalizedData.length} rows`); // Debug log
+
       // Show confirmation dialog
       Alert.alert(
         "Import Confirmation",
@@ -755,41 +822,50 @@ export default function App() {
         `Tickers: ${normalizedData.map(s => s.ticker).join(', ')}\n\n` +
         `Continue with import?`,
         [
-          {
-            text: "Cancel",
+          { 
+            text: "Cancel", 
             style: "cancel",
             onPress: () => {
+              console.log('Import cancelled by user');
               setIsLoading(false);
-              setError(null);
-            },
+            }
           },
           {
             text: "Import",
             onPress: async () => {
               try {
+                console.log('User confirmed import, starting...');
+                setIsLoading(true);
+                
                 const result = await bulkImportStocks(normalizedData);
-                console.log('Import result:', result);
-  
+                console.log('Import completed:', result);
+
                 if (result && result.length > 0) {
                   await loadStocks();
-                  Alert.alert("Success", `Imported ${result.length} stocks successfully!`);
+                  Alert.alert(
+                    "Success", 
+                    `Imported ${result.length} stocks successfully!`,
+                    [{ 
+                      text: "OK",
+                      onPress: () => setIsLoading(false)
+                    }]
+                  );
                 } else {
                   throw new Error('No data was imported');
                 }
               } catch (error) {
                 console.error('Import error:', error);
                 Alert.alert('Import Error', error.message);
-              } finally {
                 setIsLoading(false);
               }
-            },
-          },
-        ]
+            }
+          }
+        ],
+        { cancelable: false }
       );
     } catch (error) {
-      console.error('File processing error:', error);
+      console.error('Excel processing error:', error);
       Alert.alert('Error', error.message);
-      setIsLoading(false);
     }
   };
     
@@ -797,20 +873,6 @@ export default function App() {
     try {
       setIsLoading(true);
       
-      // Check if this is a delete action
-      if (stockData.action === 'delete') {
-        if (!stockData.id) {
-          throw new Error('Cannot delete stock: missing ID');
-        }
-        await deleteStock(stockData.id);
-        setIsEditingStock(false);
-        setSelectedStock(null);
-        await loadStocks();
-        Alert.alert("Success", "Stock deleted successfully!");
-        return;
-      }
-      
-      // Validate data
       if (!stockData.ticker) throw new Error('Ticker is required');
       if (!stockData.account) throw new Error('Account is required');
       if (!stockData.quantity || isNaN(parseFloat(stockData.quantity)) || parseFloat(stockData.quantity) <= 0) 
@@ -1027,8 +1089,8 @@ const fetchYahooFinanceData = async (ticker) => {
       const now = new Date();
 
       // Use cached data if it was refreshed within the last 24 hours
-      const hoursSinceLastRefresh = (now - lastRefreshed) / (1000 * 60 * 60);
-      if (hoursSinceLastRefresh < 24) {
+      const hoursSinceLastRefresh = (now - lastRefreshed) / (1000 * 60);
+      if (hoursSinceLastRefresh < 2) {
         console.log(`Using cached data for ${ticker}: $${cachedData.current_price}`);
         return { ticker, currentPrice: cachedData.current_price };
       }
@@ -1159,19 +1221,42 @@ const fetchYahooFinanceData = async (ticker) => {
       <MenuDrawer 
         visible={menuVisible} 
         onClose={() => setMenuVisible(false)}
-        onImportPress={() => {
+        onImportPress={async () => {
           setMenuVisible(false);
-          DocumentPicker.getDocumentAsync({
-            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            copyToCacheDirectory: true,
-          }).then(result => {
-            if (result.type !== 'cancel') {
-              handleFileSelect(result.uri); // Use result.uri instead of result.assets[0].uri
+          try {
+            if (Platform.OS === 'web') {
+              // Web file picker
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.accept = '.xlsx,.xls';
+              
+              input.onchange = (e) => {
+                console.log('File selected'); // Debug log
+                const file = e.target.files[0];
+                if (file) {
+                  console.log('Selected file:', file.name); // Debug log
+                  handleFileSelect({ file });
+                }
+              };
+              
+              input.click();
+            } else {
+              // Mobile file picker
+              const result = await DocumentPicker.getDocumentAsync({
+                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                copyToCacheDirectory: true
+              });
+              
+              console.log('Document picker result:', result); // Debug log
+              
+              if (result.type !== 'cancel') {
+                handleFileSelect(result);
+              }
             }
-          }).catch(error => {
+          } catch (error) {
             console.error('Error picking document:', error);
             Alert.alert('Error', 'Failed to pick document. Please try again.');
-          });
+          }
         }}
         onClearDataPress={handleClearAllData}
       />

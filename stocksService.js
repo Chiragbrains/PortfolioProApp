@@ -147,18 +147,27 @@ export const deleteStock = async (stockId) => {
 };
 
 // Bulk import stocks
-export const bulkImportStocks = async (stocksData) => {
+export const bulkImportStocks = async (stocks) => {
   try {
-    const { data, error } = await supabase.from('stocks').insert(stocksData);
+    console.log('Starting bulk import with stocks:', stocks); // Debug log
+
+    const { data, error } = await supabase
+      .from('stocks')
+      .upsert(stocks, {
+        onConflict: 'ticker,account', // Handle duplicates by ticker and account
+        returning: true // Return the inserted/updated rows
+      });
+
     if (error) {
-      console.error('Error importing stocks:', error);
-      throw error;
+      console.error('Bulk import error:', error);
+      throw new Error('Failed to import stocks: ' + error.message);
     }
-    console.log('Stocks imported successfully:', data);
+
+    console.log('Successfully imported stocks:', data); // Debug log
     return data;
   } catch (error) {
-    console.error('Error in bulkImportStocks:', error);
-    throw new Error('Failed to import stocks.');
+    console.error('Unexpected error in bulkImportStocks:', error);
+    throw error;
   }
 };
 
@@ -203,29 +212,35 @@ export const getCachedStockData = async (ticker) => {
       .from('stock_cache')
       .select('*')
       .eq('ticker', ticker)
-      .single();
+      .maybeSingle();  // Changed from .single() to .maybeSingle()
 
     if (error) {
       console.error(`Error fetching cached data for ${ticker}:`, error.message);
       return null;
     }
 
-    return data;
+    return data;  // Will be null if no row was found
   } catch (error) {
     console.error(`Unexpected error fetching cached data for ${ticker}:`, error.message);
     return null;
   }
 };
 
-// Update or insert stock data into the cache
+// Add this helper function at the top of stocksService.js
+const getESTTimestamp = () => {
+  return new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+};
+
 export const updateStockCache = async (ticker, currentPrice) => {
   try {
+    const estTimestamp = getESTTimestamp(); // Get the current time in EST
+
     const { data, error } = await supabase
       .from('stock_cache')
       .upsert({
         ticker,
-        current_price: currentPrice, // Ensure the column name matches your Supabase table
-        last_refreshed: new Date().toISOString(), // Ensure the column name matches your Supabase table
+        current_price: currentPrice,
+        last_refreshed: estTimestamp, // Save the timestamp in EST
       });
 
     if (error) {

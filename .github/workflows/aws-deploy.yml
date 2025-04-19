@@ -23,6 +23,11 @@ jobs:
           
       - name: Set Build Info
         run: echo "BUILD_TIME=$(date)" >> $GITHUB_ENV
+        
+      - name: Set Supabase Environment Variables
+        run: |
+          echo "REACT_APP_SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
+          echo "REACT_APP_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> $GITHUB_ENV
           
       - name: Install Global Dependencies
         run: |
@@ -34,6 +39,9 @@ jobs:
           
       - name: Build Web
         run: expo build:web
+        env:
+          REACT_APP_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          REACT_APP_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           
       - name: Deploy to AWS Amplify
         env:

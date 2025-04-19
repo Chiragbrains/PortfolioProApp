@@ -1,18 +1,27 @@
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@env';
 
-const supabaseUrl = 'https://vdxrsbzfqucnlfxlkhdu.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZkeHJzYnpmcXVjbmxmeGxraGR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI3NjgzNDYsImV4cCI6MjA1ODM0NDM0Nn0.mn58x3QjurHftggrAbVZFfyTIkx38ydH_yTSorVFEKI';
-
-// Create a custom storage object
 const customStorage = {
   getItem: (key) => AsyncStorage.getItem(key),
   setItem: (key, value) => AsyncStorage.setItem(key, value),
   removeItem: (key) => AsyncStorage.removeItem(key),
 };
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  localStorage: customStorage,
-  autoRefreshToken: true,
-  persistSession: true,
+// Debug logging (remove in production)
+console.log('Environment variables loaded:', {
+  SUPABASE_URL: SUPABASE_URL ? 'Set' : 'Not set',
+  SUPABASE_ANON_KEY: SUPABASE_ANON_KEY ? 'Set' : 'Not set'
+});
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error('Missing Supabase environment variables');
+}
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    storage: customStorage,
+    autoRefreshToken: true,
+    persistSession: true
+  }
 });

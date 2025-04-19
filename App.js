@@ -660,7 +660,7 @@ const ImportConfirmationModal = ({ visible, data, onConfirm, onCancel }) => {
       </View>
     </View>
   );
-};
+}
 
 // Main App component
 export default function App() {

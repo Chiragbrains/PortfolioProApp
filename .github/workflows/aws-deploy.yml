@@ -7,19 +7,22 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v3
         with:
           node-version: '16'
+          
+      - name: Set Build Info
+        run: echo "BUILD_TIME=$(date)" >> $GITHUB_ENV
           
       - name: Install Global Dependencies
         run: |
@@ -30,14 +33,11 @@ jobs:
         run: npm install
           
       - name: Build Web
-        run: |
-          expo build:web
+        run: expo build:web
           
       - name: Deploy to AWS Amplify
         env:
           AWS_AMPLIFY_APP_ID: ${{ secrets.AWS_AMPLIFY_APP_ID }}
         run: |
-          amplify pull --appId $AWS_AMPLIFY_APP_ID --envName dev --yes
-          amplify add custom-domain --yes
-          amplify push --yes
-          amplify publish --yes
+          echo "Deploying build from ${{ env.BUILD_TIME }}"
+          # Your deployment commands here

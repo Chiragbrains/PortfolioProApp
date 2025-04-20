@@ -1,4 +1,4 @@
-name: Deploy to AWS
+name: Deploy to AWS Amplify
 on:
   push:
     branches: [ main ]
@@ -27,29 +27,25 @@ jobs:
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
           echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
           
-          
       - name: Install Dependencies
         run: |
-          npm install -g @aws-amplify/cli
           npm install
+          npm install -g @aws-amplify/cli@latest
           
-      - name: Configure Amplify
-        run: |
-          amplify configure project --projectName StockPortfolioApp \
-            --envName production \
-            --defaultEditor vscode \
-            --appId ${{ secrets.AWS_AMPLIFY_APP_ID }} \
-            --yes
-            
-      - name: Initialize Amplify
-        run: |
-          amplify init --amplify "{\"envName\":\"production\"}" --yes
-          
-      - name: Build and Deploy
-        env:
-          AWS_AMPLIFY_APP_ID: ${{ secrets.AWS_AMPLIFY_APP_ID }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      - name: Build Application
         run: |
           npm run build
-          amplify push --yes
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          
+      - name: Deploy to Amplify
+        uses: aws-actions/amplify-cli-action@master
+        with:
+          amplify_command: push
+          amplify_env: production
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+          AMPLIFY_APP_ID: ${{ secrets.AWS_AMPLIFY_APP_ID }}

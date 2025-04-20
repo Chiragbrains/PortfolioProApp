@@ -27,6 +27,7 @@ jobs:
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
           echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
           
+          
       - name: Install Dependencies
         run: |
           npm install -g @aws-amplify/cli

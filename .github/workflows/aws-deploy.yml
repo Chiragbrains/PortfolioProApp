@@ -52,3 +52,4 @@ jobs:
         run: |
           npm run build
           amplify push --yes
+          

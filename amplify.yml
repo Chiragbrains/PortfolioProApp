@@ -5,7 +5,7 @@ frontend:
       commands:
         - echo "Creating .env file for build..."
         - echo "SUPABASE_URL=$SUPABASE_URL" > .env
-        - echo "SUPABASE_KEY=$SUPABASE_KEY" >> .env
+        - echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
         - npm install
     build:
       commands:

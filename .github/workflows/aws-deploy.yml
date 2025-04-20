@@ -42,7 +42,7 @@ jobs:
             
       - name: Initialize Amplify
         run: |
-          amplify init --amplify "{\"envName\":\"production\"}" --yes
+          amplify init
           
       - name: Build and Deploy
         env:

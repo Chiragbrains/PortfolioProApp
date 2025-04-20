@@ -10,8 +10,10 @@ frontend:
     build:
       commands:
         - npm run build
+        - echo "Listing directories:"
+        - ls -la
   artifacts:
-    baseDirectory: build
+    baseDirectory: dist  # Changed from "build" to "dist"
     files:
       - '**/*'
   cache:

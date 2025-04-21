@@ -1,6 +1,6 @@
 // App.js
 import React, { useState, useEffect } from 'react';
-import { Modal, StyleSheet, Text, View, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, Alert, Platform, TextInput, Dimensions } from 'react-native';
+import { Modal, StyleSheet, Text, View, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, Alert, Platform, TextInput, Dimensions, Picker } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
@@ -78,6 +78,7 @@ const TabNavigation = ({ activeTab, setActiveTab }) => {
 const StockList = ({ stocks, isLoading, onScroll, setActiveTab, setGlobalSearchTerm }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const screenWidth = Dimensions.get('window').width;
+  const [sortBy, setSortBy] = useState('ticker'); // State for sorting
   
   if (isLoading) {
     return (
@@ -143,12 +144,24 @@ const StockList = ({ stocks, isLoading, onScroll, setActiveTab, setGlobalSearchT
   
   // Convert to array and sort by ticker alphabetically (A to Z)
   const sortedStocks = Object.values(consolidatedStocks)
-    .sort((a, b) => a.ticker.localeCompare(b.ticker))
+    .sort((a, b) => {
+      switch (sortBy) {
+        case 'ticker':
+          return a.ticker.localeCompare(b.ticker); // Sort by ticker
+        case 'pnl':
+          return b.pnl - a.pnl; // Sort by P&L descending
+        case 'value':
+          return b.totalValue - a.totalValue; // Sort by value descending
+        default:
+          return 0;
+      }
+    })
     .filter(stock => searchTerm === '' || stock.ticker.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
     <View style={styles.stockListContainer}>
-      <View style={styles.searchContainer}>
+      <View style={styles.searchSortContainer}>
+        {/* Search By Ticker Input */}
         <View style={styles.searchInputWrapper}>
           <TextInput
             style={styles.searchInput}
@@ -173,8 +186,21 @@ const StockList = ({ stocks, isLoading, onScroll, setActiveTab, setGlobalSearchT
             </Text>
           </View>
         )}
+
+        {/* Sort By Dropdown */}
+        <View style={styles.sortByContainer}>
+          <Picker
+            selectedValue={sortBy}
+            style={styles.picker}
+            onValueChange={(itemValue) => setSortBy(itemValue)}
+          >
+            <Picker.Item label="Sort by Ticker" value="ticker" />
+            <Picker.Item label="Sort by P&L" value="pnl" />
+            <Picker.Item label="Sort by Value" value="value" />
+          </Picker>
+        </View>
       </View>
-      
+
       <ScrollView 
         style={styles.modernStockList}
         onScroll={onScroll}
@@ -250,6 +276,17 @@ const StockList = ({ stocks, isLoading, onScroll, setActiveTab, setGlobalSearchT
           );
         })}
       </ScrollView>
+      
+      {/* Add Stock Button */}
+      <View style={styles.addButtonContainer}>
+        <TouchableOpacity style={styles.addButton} onPress={() => {
+          setSelectedStock(null);
+          setIsEditingStock(false);
+          setIsAddingStock(true);
+        }}>
+          <Text style={styles.addButtonText}>+</Text> {/* Change text to '+' */}
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -1242,10 +1279,10 @@ const fetchYahooFinanceData = async (ticker) => {
           setIsEditingStock(false);
           setIsAddingStock(true);
         }}>
-          <Text style={styles.addButtonText}>+ Add Stock</Text>
-            </TouchableOpacity>
-          </View>
-          
+          <Text style={styles.addButtonText}>+</Text> {/* Change text to '+' */}
+        </TouchableOpacity>
+      </View>
+      
       {/* Menu Drawer */}
       <MenuDrawer 
         visible={menuVisible} 
@@ -1860,11 +1897,11 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     width: '48%',
-    padding: 12,
+    padding: 8, // Reduced padding
     borderWidth: 1,
     borderColor: '#e0e0e0',
     borderRadius: 8,
-    marginBottom: 10,
+    marginBottom: 8, // Reduced margin
     backgroundColor: 'white',
     elevation: 1,
     shadowColor: '#000',
@@ -1873,16 +1910,16 @@ const styles = StyleSheet.create({
     shadowRadius: 1,
   },
   summaryCardTitle: {
-    fontSize: 13,
+    fontSize: 12, // Reduce font size
     color: '#666',
-    marginBottom: 4,
+    marginBottom: 2, // Reduce margin
   },
   summaryCardValue: {
     fontWeight: 'bold',
-    fontSize: 16,
+    fontSize: 14, // Reduce font size
   },
   summaryCardSubtitle: {
-    fontSize: 12,
+    fontSize: 10, // Reduce font size
     color: '#666',
   },
   collapseIconContainer: {
@@ -1900,8 +1937,8 @@ const styles = StyleSheet.create({
   modernStockCard: {
     backgroundColor: 'white',
     borderRadius: 12,
-    padding: 16,
-    marginVertical: 8,
+    padding: 10,
+    marginVertical: 6,
     marginHorizontal: 4,
     elevation: 3,
     shadowColor: '#000',
@@ -1921,9 +1958,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   stockCardTicker: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 4,
+    marginBottom: 2,
     color: '#0066cc',
   },
   stockCardPrice: {
@@ -2142,5 +2179,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  searchSortContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    marginVertical: 10,
+  },
+  searchInputWrapper: {
+    flex: 1, // Make the search input take more space
+    marginRight: 10, // Add some space between search and sort
+  },
+  searchInput: {
+    height: 50, // Increase height for better visibility
+    borderColor: '#ddd',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    backgroundColor: 'white',
+  },
+  sortByContainer: {
+    width: 125, // Set a fixed width for the dropdown
+    borderWidth: 0,
+    borderRadius: 8,
+    //paddingHorizontal: 10,
+    backgroundColor: 'white' // Remove border
+  },
+  picker: {
+    height: 50,
+    width: '100%',
+    borderWidth: 0, // Remove border
+    backgroundColor: 'white', // Optional: Set background color
   },
 });

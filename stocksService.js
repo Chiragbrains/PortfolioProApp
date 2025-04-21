@@ -254,20 +254,20 @@ export const getCachedStockData = async (ticker) => {
 };
 
 // Add this helper function at the top of stocksService.js
-const getESTTimestamp = () => {
-  return new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
-};
+// const getESTTimestamp = () => {
+//   return new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+// };
 
 export const updateStockCache = async (ticker, currentPrice) => {
   try {
-    const estTimestamp = getESTTimestamp(); // Get the current time in EST
+    const utcTimestamp = new Date().toISOString(); // Get the current time in UTC ISO format
 
     const { data, error } = await supabase
       .from('stock_cache')
       .upsert({
         ticker,
         current_price: currentPrice,
-        last_refreshed: estTimestamp, // Save the timestamp in EST
+        last_refreshed: utcTimestamp, // Save the timestamp in UTC ISO format
       });
 
     if (error) {

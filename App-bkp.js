@@ -1021,7 +1021,7 @@ export default function App() {
 
         // If price is 0 (not found), use a cost-basis-based fallback
         if (currentPrice === 0) {
-          currentPrice = (stock.costBasis || 0) * 1.05; // Use cost basis + 5% as fallback
+          currentPrice = (stock.costBasis || 0) * 0; // Use cost basis + 5% as fallback
           console.log(`Using fallback price for ${stock.ticker}: $${currentPrice.toFixed(2)}`);
         }
 
@@ -1101,10 +1101,12 @@ const fetchYahooFinanceData = async (ticker) => {
     const cachedData = await getCachedStockData(ticker);
     if (cachedData) {
       const lastRefreshed = new Date(cachedData.last_refreshed);
+      //console.log(`Last refreshed: ${lastRefreshed}`);
       const now = new Date();
 
       // Use cached data if it was refreshed within the last 2 hours
       const hoursSinceLastRefresh = (now - lastRefreshed) / (1000 * 60 * 60);
+      //console.log(`Last refreshed: ${lastRefreshed}, Now: ${now}, Hours since last refresh: ${hoursSinceLastRefresh}`);
       if (hoursSinceLastRefresh < 2) {
         console.log(`Using cached data for ${ticker}: $${cachedData.current_price}`);
         return { ticker, currentPrice: cachedData.current_price };
@@ -1116,6 +1118,7 @@ const fetchYahooFinanceData = async (ticker) => {
     // Fetch fresh data from Yahoo Finance
     const yahooFinanceUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d`;
     const proxyUrl = Platform.OS === 'web' ? 'https://cors-anywhere.herokuapp.com/' : '';
+    
     const response = await axios.get(proxyUrl + yahooFinanceUrl);
 
     if (response.data?.chart?.result?.[0]?.meta?.regularMarketPrice) {
@@ -1128,40 +1131,63 @@ const fetchYahooFinanceData = async (ticker) => {
       return { ticker, currentPrice: price };
     }
 
-    throw new Error('Price not found');
+    // If Yahoo fails, try Google Finance
+    console.log(`Yahoo Finance failed. Attempting to fetch fresh data for ${ticker} from Google Finance...`);
+    const googlePrice = await getGoogleFinancePrice(ticker);
+    if (googlePrice > 0) {
+      console.log(`Successfully fetched Google price for ${ticker}: $${googlePrice}`);
+      await updateStockCache(ticker, googlePrice);
+      return { ticker, currentPrice: googlePrice };
+    }
+
+    // If both Yahoo and Google fail, use cached data or return $0 if not available
+    if (cachedData) {
+      console.error(`Failed to pull fresh data for ${ticker}. Using cached value: $${cachedData.current_price}`);
+      return { ticker, currentPrice: cachedData.current_price };
+    }
+
+    console.error(`No cached data available for ${ticker}. Returning $0.`);
+    return { ticker, currentPrice: 0 }; // Return $0 if no cached data is available
   } catch (error) {
     console.error(`Error fetching price for ${ticker}:`, error.message);
-    return { ticker, currentPrice: 0, error: error.message };
+    // Attempt to fetch from Google Finance if Yahoo fails
+    const googlePrice = await getGoogleFinancePrice(ticker);
+    if (googlePrice > 0) {
+      console.log(`Successfully fetched Google price for ${ticker} after Yahoo failure: $${googlePrice}`);
+      return { ticker, currentPrice: googlePrice };
+    }
+    return { ticker, currentPrice: 0 }; // Return $0 if Google also fails
   }
 };
 
-  // Function to get stock price from Google Finance
-  const getGoogleFinancePrice = async (ticker) => {
-    try {
-      const exchanges = ['NASDAQ', 'NYSE'];
-      
-      for (const exchange of exchanges) {
-        try {
-          const url = `https://www.google.com/finance/quote/${ticker}:${exchange}`;
-          const response = await fetch(url);
-          const html = await response.text();
-          
-          const priceMatch = html.match(/data-last-price="([0-9,.]+)"/);
-          if (priceMatch && priceMatch[1]) {
-            const price = parseFloat(priceMatch[1].replace(/,/g, ''));
-            console.log(`Found price ${price} for ${ticker} from Google Finance (${exchange})`);
-            return price;
-          }
-        } catch (exchangeError) {
-          console.log(`Error fetching ${ticker} from ${exchange}: ${exchangeError.message}`);
+// Function to get stock price from Google Finance
+const getGoogleFinancePrice = async (ticker) => {
+  try {
+    const exchanges = ['NASDAQ', 'NYSE'];
+    const proxyUrl = Platform.OS === 'web' ? 'https://cors-anywhere.herokuapp.com/' : '';
+
+    for (const exchange of exchanges) {
+      try {
+        const url = `https://www.google.com/finance/quote/${ticker}:${exchange}`;
+        const response = await fetch(url);
+        const html = await response.text();
+        
+        const priceMatch = html.match(/data-last-price="([0-9,.]+)"/);
+        if (priceMatch && priceMatch[1]) {
+          const price = parseFloat(priceMatch[1].replace(/,/g, ''));
+          console.log(`Found price ${price} for ${ticker} from Google Finance (${exchange})`);
+          return price;
         }
+      } catch (exchangeError) {
+        console.log(`Error fetching ${ticker} from ${exchange}: ${exchangeError.message}`);
       }
-      return 0;
-    } catch (error) {
-      console.error(`Failed to get price for ${ticker} from Google:`, error);
-      return 0;
     }
-  };
+    return 0;
+  } catch (error) {
+    console.error(`Failed to get price for ${ticker} from Google:`, error);
+    return 0;
+  }
+};
   
   // Function to handle stock edit selection
   const handleEditStock = (stock) => {

@@ -83,24 +83,17 @@ const AddStockForm = ({ visible, onClose, onSubmit, initialValues = null, isEdit
     }
   };
   
-  const handleDelete = () => {
-    Alert.alert(
-      "Confirm Delete",
-      `Are you sure you want to delete ${initialValues.ticker} from ${initialValues.account}?`,
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        {
-          text: "Delete",
-          onPress: () => {
-            onSubmit({ id: initialValues.id, action: 'delete' });
-          },
-          style: "destructive"
-        }
-      ]
-    );
+  const handleDelete = async () => {
+    console.log("Delete button pressed for stock ID:", initialValues.id); // Debug log
+
+    try {
+      console.log("Deleting stock with ID:", initialValues.id); // Debug log
+      await onSubmit({ id: initialValues.id, action: 'delete' });
+      Alert.alert("Success", "Stock deleted successfully!"); // Notify success
+    } catch (error) {
+      console.error('Error deleting stock:', error); // Log any errors
+      Alert.alert('Error', 'Failed to delete stock: ' + error.message);
+    }
   };
 
   return (

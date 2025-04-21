@@ -24,6 +24,7 @@ export const fetchStocks = async () => {
 
 // Add a new stock
 export const addStock = async (stockData) => {
+  console.error('Adding New stock:');
   try {
     const ticker = typeof stockData.ticker === 'string' ? stockData.ticker.trim() : stockData.ticker;
     const account = typeof stockData.account === 'string' ? stockData.account.trim() : stockData.account;
@@ -113,15 +114,18 @@ export const updateStock = async (stockId, stockData) => {
     
     const ticker = typeof stockData.ticker === 'string' ? stockData.ticker.trim() : stockData.ticker;
     const account = typeof stockData.account === 'string' ? stockData.account.trim() : stockData.account;
-    const type = typeof stockData.type === 'string' ? stockData.type.toLowerCase().trim() : stockData.type.toLowerCase();
-    
+    const type = typeof stockData.type === 'string' ? stockData.type.toLowerCase().trim() : null;
+
+    // Ensure costBasis is defined, or set it to a default value
+    const costBasis = stockData.costBasis !== undefined ? stockData.costBasis : 0; // Set to 0 or handle as needed
+
     const { data, error } = await supabase
       .from('stocks')
       .update({
         ticker: ticker,
         account: account,
         quantity: stockData.quantity,
-        cost_basis: stockData.costBasis,
+        cost_basis: costBasis, // Use the defined costBasis
         type: type,
         updated_at: new Date().toISOString()
       })
@@ -279,5 +283,27 @@ export const updateStockCache = async (ticker, currentPrice) => {
   } catch (error) {
     console.error(`Unexpected error updating cache for ${ticker}:`, error.message);
     return null;
+  }
+};
+
+// Function to fetch stock by ticker and account
+export const fetchStockByTickerAndAccount = async (ticker, account) => {
+  try {
+    const { data, error } = await supabase
+      .from('stocks') // Specify the table name
+      .select('*') // Select all columns
+      .eq('ticker', ticker) // Filter by ticker
+      .eq('account', account) // Filter by account
+      .single(); // Use .single() to get a single record
+
+    if (error) {
+      console.error('Error fetching stock:', error);
+      return null; // Return null if there's an error
+    }
+
+    return data; // Return the fetched stock data
+  } catch (error) {
+    console.error('Error fetching stock:', error);
+    return null; // Return null if there's an unexpected error
   }
 };

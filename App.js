@@ -5,7 +5,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
 import axios from 'axios';
-import { fetchStocks, addStock, updateStock, deleteStock, bulkImportStocks, clearAllStocks, truncateStocks, getCachedStockData, updateStockCache } from './stocksService';
+import { fetchStocks, addStock, updateStock, deleteStock, bulkImportStocks, clearAllStocks, truncateStocks, getCachedStockData, updateStockCache, fetchStockByTickerAndAccount } from './stocksService';
 import AddStockForm from './AddStockForm';
 
 // Helper function for number formatting with commas
@@ -910,24 +910,27 @@ export default function App() {
       const processedData = {
         ...stockData,
         quantity: parseFloat(stockData.quantity),
-        costBasis: parseFloat(stockData.costBasis)
+        costBasis: parseFloat(stockData.costBasis) // Ensure this is a number
       };
+  
+      // Check if the stock already exists
+      const existingStock = await getStockByTickerAndAccount(processedData.ticker, processedData.account);
       
-      if (isEditingStock && selectedStock) {
-        // Make sure we have a valid ID
-        if (!selectedStock.id) {
-          throw new Error('Cannot update stock: missing ID');
-        }
-        
-        console.log('Updating stock with ID:', selectedStock.id);
-        
-        // Update existing stock
-        await updateStock(selectedStock.id, processedData);
+      if (existingStock) {
+        // Calculate new quantity and weighted average cost basis
+        const newQuantity = existingStock.quantity + processedData.quantity;
+        const newCostBasis = ((existingStock.cost_basis * existingStock.quantity) + (processedData.costBasis * processedData.quantity)) / newQuantity;
+
+        await updateStock(existingStock.id, {
+          quantity: newQuantity,
+          costBasis: newCostBasis, // Update with the new weighted average cost basis
+          type: existingStock.type,
+        });
         Alert.alert("Success", "Stock updated successfully!");
       } else {
         // Add new stock
         await addStock(processedData);
-        Alert.alert("Success", `Stock added successfully! If duplicate ${processedData.ticker} positions existed in ${processedData.account}, they have been automatically consolidated.`);
+        Alert.alert("Success", `Stock added successfully!`);
       }
       
       // Close form and reload stocks
@@ -1224,6 +1227,48 @@ const fetchYahooFinanceData = async (ticker) => {
     setIsAddingStock(true);
   };
 
+  const handleUpdateStock = async (stockData) => {
+    try {
+      setIsLoading(true);
+      console.log("Stock data received:", stockData); // Debug log
+
+    if (stockData.action === 'delete') {
+      console.log("Delete action triggered for stock ID:", stockData.id); // Debug log
+      await deleteStock(stockData.id); // Ensure this is called
+      Alert.alert("Success", "Stock deleted successfully!");
+      // Close form and reload stocks
+      setIsEditingStock(false);
+      setSelectedStock(null);
+      await loadStocks(); // Reload stocks after deletion
+      return; // Exit the function after deletion
+    }
+      if (!stockData.id) throw new Error('Stock ID is required');
+      if (!stockData.quantity || isNaN(parseFloat(stockData.quantity)) || parseFloat(stockData.quantity) < 0) 
+        throw new Error('Quantity must be a non-negative number');
+      if (!stockData.costBasis || isNaN(parseFloat(stockData.costBasis)) || parseFloat(stockData.costBasis) < 0) 
+        throw new Error('Cost basis must be a non-negative number');
+
+      const updatedData = {
+        quantity: parseFloat(stockData.quantity), // Replace with new quantity
+        costBasis: parseFloat(stockData.costBasis), // Replace with new cost basis
+        type: stockData.type, // Keep the existing type
+      };
+
+      await updateStock(stockData.id, updatedData);
+      Alert.alert("Success", "Stock updated successfully!");
+
+      // Close form and reload stocks
+      setIsEditingStock(false);
+      setSelectedStock(null);
+      await loadStocks();
+    } catch (error) {
+      console.error('Error updating stock:', error);
+      Alert.alert('Error', error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const renderActiveTab = () => {
     const [isSummaryCollapsed, setIsSummaryCollapsed] = useState(false);
     
@@ -1335,7 +1380,7 @@ const fetchYahooFinanceData = async (ticker) => {
           setIsEditingStock(false);
           setSelectedStock(null);
         }}
-        onSubmit={handleAddStock}
+        onSubmit={isEditingStock ? handleUpdateStock : handleAddStock}
         initialValues={selectedStock}
         isEditing={isEditingStock}
       />
@@ -2200,7 +2245,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
   },
   sortByContainer: {
-    width: 125, // Set a fixed width for the dropdown
+    width: 135, // Set a fixed width for the dropdown
     borderWidth: 0,
     borderRadius: 8,
     //paddingHorizontal: 10,
@@ -2213,3 +2258,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'white', // Optional: Set background color
   },
 });
+
+// Helper function to get stock by ticker and account
+const getStockByTickerAndAccount = async (ticker, account) => {
+  // Implement the logic to fetch the stock from the database
+  // This could be a call to your stocksService to get the stock by ticker and account
+  return await fetchStockByTickerAndAccount(ticker, account);
+};

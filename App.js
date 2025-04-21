@@ -1021,7 +1021,7 @@ export default function App() {
 
         // If price is 0 (not found), use a cost-basis-based fallback
         if (currentPrice === 0) {
-          currentPrice = (stock.costBasis || 0) * 1.05; // Use cost basis + 5% as fallback
+          currentPrice = (stock.costBasis || 0) * 0; // Use cost basis + 5% as fallback
           console.log(`Using fallback price for ${stock.ticker}: $${currentPrice.toFixed(2)}`);
         }
 
@@ -1128,10 +1128,24 @@ const fetchYahooFinanceData = async (ticker) => {
       return { ticker, currentPrice: price };
     }
 
-    throw new Error('Price not found');
+    // If Yahoo fails, check the cache again
+    console.error(`Yahoo Finance failed. Attempting to use cached data for ${ticker}...`);
+    if (cachedData) {
+      console.error(`Using cached value: $${cachedData.current_price}`);
+      return { ticker, currentPrice: cachedData.current_price };
+    }
+
+    console.error(`No cached data available for ${ticker}. Returning $0.`);
+    return { ticker, currentPrice: 0 }; // Return $0 if no cached data is available
   } catch (error) {
     console.error(`Error fetching price for ${ticker}:`, error.message);
-    return { ticker, currentPrice: 0, error: error.message };
+    // Attempt to fetch from cache if Yahoo fails
+    const cachedData = await getCachedStockData(ticker);
+    if (cachedData) {
+      console.error(`Using cached value: $${cachedData.current_price}`);
+      return { ticker, currentPrice: cachedData.current_price };
+    }
+    return { ticker, currentPrice: 0 }; // Return $0 if no cached data is available
   }
 };
 

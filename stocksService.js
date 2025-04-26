@@ -307,3 +307,48 @@ export const fetchStockByTickerAndAccount = async (ticker, account) => {
     return null; // Return null if there's an unexpected error
   }
 };
+
+/**
+ * Fetches historical portfolio value, cost, and P&L data.
+ * @param {number} limit - Optional limit for the number of days to fetch.
+ * @returns {Promise<Array<{date: string, total_value: number, total_cost_basis: number, total_pnl: number}>>} - Array of history points.
+ */
+export const fetchPortfolioHistory = async (days = 90) => {
+  console.log(`Fetching portfolio history for the last ${days} days.`); // Log the requested duration
+
+  try {
+    // Calculate the start date
+    const today = new Date();
+    const startDate = new Date(today);
+    startDate.setDate(today.getDate() - days);
+
+    // Format the start date as YYYY-MM-DD for Supabase query
+    const startDateString = startDate.toISOString().split('T')[0];
+    console.log(`Fetching data from date: ${startDateString}`); // Log the calculated start date
+
+    const { data, error } = await supabase
+      .from('portfolio_history')
+      .select('date, total_value, total_cost_basis, total_pnl, cash_value') // Ensure these columns exist
+      .gte('date', startDateString) // Filter records greater than or equal to the start date
+      .order('date', { ascending: true }); // Fetch in ascending order directly
+
+    // Log the raw response for debugging
+    // console.log('Raw response from Supabase:', { data, rowCount: data?.length });
+
+    if (error) {
+      console.error('Error fetching portfolio history:', error);
+      // Consider more specific error handling if needed
+      throw new Error(`Failed to fetch portfolio history: ${error.message}`);
+    }
+
+    // Data is already sorted ascending by the query
+    return data || []; // Return the data or an empty array if null/undefined
+
+  } catch (error) {
+    // Catch any unexpected errors during date calculation or re-throw Supabase errors
+    console.error('Unexpected error fetching portfolio history:', error);
+    throw error; // Re-throw for handling in the component
+  }
+};
+
+

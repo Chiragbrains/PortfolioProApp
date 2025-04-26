@@ -7,6 +7,10 @@ import * as XLSX from 'xlsx';
 import axios from 'axios';
 import { fetchStocks, addStock, updateStock, deleteStock, bulkImportStocks, clearAllStocks, truncateStocks, getCachedStockData, updateStockCache, fetchStockByTickerAndAccount } from './stocksService';
 import AddStockForm from './AddStockForm';
+import PortfolioGraph from './PortfolioGraph'; // Add this import
+
+
+
 
 // Helper function for number formatting with commas
 const formatNumber = (num) => {
@@ -69,6 +73,12 @@ const TabNavigation = ({ activeTab, setActiveTab }) => {
         onPress={() => setActiveTab('accountDetail')}
       >
         <Text style={[styles.tabText, activeTab === 'accountDetail' && styles.activeTabText]}>Account Detail</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.tab, activeTab === 'history' && styles.activeTab]}
+        onPress={() => setActiveTab('history')}
+      >
+        <Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>History</Text>
       </TouchableOpacity>
     </View>
   );
@@ -1305,6 +1315,10 @@ const fetchYahooFinanceData = async (ticker) => {
             setSearchTerm={setGlobalSearchTerm}
           />
         );
+      case 'history':
+        return (
+          <PortfolioGraph /> // Render the new graph component
+        );
       default:
         return <StockList stocks={stocks} isLoading={isLoading} />;
     }
@@ -2265,3 +2279,5 @@ const getStockByTickerAndAccount = async (ticker, account) => {
   // This could be a call to your stocksService to get the stock by ticker and account
   return await fetchStockByTickerAndAccount(ticker, account);
 };
+
+

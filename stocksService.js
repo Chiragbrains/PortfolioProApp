@@ -24,7 +24,7 @@ export const fetchStocks = async () => {
 
 // Add a new stock
 export const addStock = async (stockData) => {
-  console.error('Adding New stock:');
+  console.error('Adding New stock:', stockData);
   try {
     const ticker = typeof stockData.ticker === 'string' ? stockData.ticker.trim() : stockData.ticker;
     const account = typeof stockData.account === 'string' ? stockData.account.trim() : stockData.account;
@@ -202,23 +202,6 @@ export const bulkImportStocks = async (stocks) => {
   }
 };
 
-// Clear all stocks
-// export const clearAllStocks = async () => {
-//   console.log("All stocks will be triggered");
-//   try {
-//     const { data, error } = await supabase.from("stocks").delete().neq("id", null); // Deletes all rows
-//     if (error) {
-//       console.error("Error clearing stocks:", error);
-//       throw error;
-//     }
-//     console.log("All stocks cleared successfully.");
-//     return data;
-//   } catch (error) {
-//     console.error("Error in clearAllStocks:", error);
-//     throw new Error("Failed to clear all stocks.");
-//   }
-// };
-
 // Truncate the stocks table
 export const truncateStocks = async () => {
   console.log("Truncating stocks table...");
@@ -236,55 +219,55 @@ export const truncateStocks = async () => {
   }
 };
 
-// Fetch cached stock data
-export const getCachedStockData = async (ticker) => {
-  try {
-    const { data, error } = await supabase
-      .from('stock_cache')
-      .select('*')
-      .eq('ticker', ticker)
-      .maybeSingle();  // Changed from .single() to .maybeSingle()
+// // Fetch cached stock data
+// export const getCachedStockData = async (ticker) => {
+//   try {
+//     const { data, error } = await supabase
+//       .from('stock_cache')
+//       .select('*')
+//       .eq('ticker', ticker)
+//       .maybeSingle();  // Changed from .single() to .maybeSingle()
 
-    if (error) {
-      console.error(`Error fetching cached data for ${ticker}:`, error.message);
-      return null;
-    }
+//     if (error) {
+//       console.error(`Error fetching cached data for ${ticker}:`, error.message);
+//       return null;
+//     }
 
-    return data;  // Will be null if no row was found
-  } catch (error) {
-    console.error(`Unexpected error fetching cached data for ${ticker}:`, error.message);
-    return null;
-  }
-};
+//     return data;  // Will be null if no row was found
+//   } catch (error) {
+//     console.error(`Unexpected error fetching cached data for ${ticker}:`, error.message);
+//     return null;
+//   }
+// };
 
 // Add this helper function at the top of stocksService.js
 // const getESTTimestamp = () => {
 //   return new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
 // };
 
-export const updateStockCache = async (ticker, currentPrice) => {
-  try {
-    const utcTimestamp = new Date().toISOString(); // Get the current time in UTC ISO format
+// export const updateStockCache = async (ticker, currentPrice) => {
+//   try {
+//     const utcTimestamp = new Date().toISOString(); // Get the current time in UTC ISO format
 
-    const { data, error } = await supabase
-      .from('stock_cache')
-      .upsert({
-        ticker,
-        current_price: currentPrice,
-        last_refreshed: utcTimestamp, // Save the timestamp in UTC ISO format
-      });
+//     const { data, error } = await supabase
+//       .from('stock_cache')
+//       .upsert({
+//         ticker,
+//         current_price: currentPrice,
+//         last_refreshed: utcTimestamp, // Save the timestamp in UTC ISO format
+//       });
 
-    if (error) {
-      console.error(`Error updating cache for ${ticker}:`, error.message);
-      return null;
-    }
+//     if (error) {
+//       console.error(`Error updating cache for ${ticker}:`, error.message);
+//       return null;
+//     }
 
-    return data;
-  } catch (error) {
-    console.error(`Unexpected error updating cache for ${ticker}:`, error.message);
-    return null;
-  }
-};
+//     return data;
+//   } catch (error) {
+//     console.error(`Unexpected error updating cache for ${ticker}:`, error.message);
+//     return null;
+//   }
+// };
 
 // Function to fetch stock by ticker and account
 export const fetchStockByTickerAndAccount = async (ticker, account) => {
@@ -351,4 +334,102 @@ export const fetchPortfolioHistory = async (days = 90) => {
   }
 };
 
+/**
+ * Checks the latest portfolio history timestamp and invokes the Edge Function
+ * to refresh price data if the history is older than 2 hours.
+ */
+export const refreshPortfolioDataIfNeeded = async () => {
+  console.log('Checking if portfolio data refresh is needed...');
+  try {
+    // 1. Get the latest timestamp from portfolio_history
+    const { data: historyData, error: historyError } = await supabase
+      .from('portfolio_history')
+      .select('created_at')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(); // Use maybeSingle in case the table is empty
+
+    if (historyError && historyError.code !== 'PGRST116') { // Ignore "No rows found"
+      console.error(`Error fetching latest portfolio history timestamp: ${historyError.message}`);
+      throw new Error('Failed to check portfolio history timestamp.');
+    }
+
+    let needsRefresh = true; // Default to refresh if no history exists
+    if (historyData?.created_at) {
+      const lastCreatedAt = new Date(historyData.created_at);
+      const now = new Date();
+      const hoursSinceLastRefresh = (now.getTime() - lastCreatedAt.getTime()) / (1000 * 60 * 60);
+
+      console.log(`Last portfolio history entry: ${lastCreatedAt.toISOString()}, Hours since: ${hoursSinceLastRefresh.toFixed(2)}`);
+
+      if (hoursSinceLastRefresh < 2) {
+        needsRefresh = false;
+        console.log('Portfolio data is recent (< 2 hours). Skipping Edge Function call.');
+      } else {
+        console.log('Portfolio data is older than 2 hours. Triggering Edge Function.');
+      }
+    } else {
+        console.log('No portfolio history found. Triggering Edge Function.');
+    }
+
+    // 2. Invoke Edge Function if needed
+    if (needsRefresh) {
+      // IMPORTANT: Replace with your actual Edge Function invocation details
+      const { data: functionData, error: functionError } = await supabase.functions.invoke('dynamic-service', {
+          // body: JSON.stringify({ /* any payload your function needs */ }), // Add body if required
+          // headers: { 'Content-Type': 'application/json' } // Add headers if required
+      });
+
+      if (functionError) {
+        console.error('Error invoking Supabase Edge Function (dynamic-service):', functionError);
+        // Decide if you want to throw an error or try to proceed with potentially stale cache
+        throw new Error(`Failed to refresh portfolio data via Edge Function: ${functionError.message}`);
+      }
+
+      console.log('Supabase Edge Function (dynamic-service) invoked successfully.', functionData);
+      // Optional: Add a small delay to allow DB updates to propagate if needed, though usually not necessary
+      // await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    return true; // Indicate success (or that refresh wasn't needed)
+
+  } catch (error) {
+    console.error('Error in refreshPortfolioDataIfNeeded:', error);
+    // Re-throw the error so the calling function (in App.js) knows something went wrong
+    throw error;
+  }
+};
+
+/**
+ * Fetches all current stock prices from the stock_cache table.
+ * @returns {Promise<Map<string, number>>} A Map where keys are tickers and values are prices.
+ */
+export const fetchAllCachedStockData = async () => {
+  console.log('Fetching all cached stock data...');
+  try {
+    const { data, error } = await supabase
+      .from('stock_cache')
+      .select('ticker, current_price'); // Select only needed columns
+
+    if (error) {
+      console.error(`Error fetching all cached data:`, error.message);
+      throw error; // Throw error to be caught by the caller
+    }
+
+    // Convert the array of {ticker, current_price} into a Map for efficient lookup
+    const priceMap = new Map();
+    if (data) {
+      data.forEach(item => {
+        // Ensure ticker is uppercase for consistent lookup
+        priceMap.set(item.ticker.toUpperCase(), item.current_price);
+      });
+    }
+    console.log(`Fetched ${priceMap.size} prices from cache.`);
+    return priceMap;
+
+  } catch (error) {
+    console.error(`Unexpected error fetching all cached data:`, error.message);
+    throw error; // Re-throw
+  }
+};
 

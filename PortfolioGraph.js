@@ -91,9 +91,8 @@ const PortfolioGraph = () => {
        ) {
       const dataPoint = historyData.originalData[index];
       if (dataPoint) {
-        const cashValue = dataPoint.cash_value || 0;
         const stockValue = dataPoint.total_value || 0;
-        const totalValue = stockValue + cashValue;
+        const totalValue = stockValue;
 
         setSelectedPoint(prevPoint => {
             if (prevPoint?.index === index && prevPoint?.value === totalValue && prevPoint?.date === dataPoint.date) {
@@ -285,8 +284,13 @@ const PortfolioGraph = () => {
       const index = selectedPoint.index;
 
       if (index < data.length) {
-        const currentValue = selectedPoint.value;
-        const previousValue = data[index - 1];
+        const currentValue = selectedPoint.value; // This should be the stock value only
+        const previousDataPoint = historyData.originalData[index - 1]; // Get the previous data point
+        const previousValue = previousDataPoint ? previousDataPoint.total_value || 0 : 0; // Only use stock value
+
+        // Log the values being used
+        console.log(`  Current Value : ${currentValue}`);
+        console.log(`  Previous Value : ${previousValue}`); // Compare if needed
 
         if (previousValue != null && previousValue !== 0) {
           const gainLoss = currentValue - previousValue;

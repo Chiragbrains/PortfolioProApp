@@ -1,24 +1,24 @@
 // App.js
-import React, { useState, useEffect, useCallback } from 'react'; // Added useCallback here
+import React, { useState, useEffect } from 'react';
 import { Modal, StyleSheet, Text, View, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, Alert, Platform, TextInput, Dimensions, Picker } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
-import { fetchStocks, addStock, updateStock, deleteStock, bulkImportStocks, truncateStocks, fetchStockByTickerAndAccount, refreshPortfolioDataIfNeeded, fetchAllCachedStockData } from './stocksService';
+import axios from 'axios';
+import { fetchStocks, addStock, updateStock, deleteStock, bulkImportStocks, clearAllStocks, truncateStocks, getCachedStockData, updateStockCache, fetchStockByTickerAndAccount } from './stocksService';
 import AddStockForm from './AddStockForm';
 import PortfolioGraph from './PortfolioGraph'; // Add this import
 
 
+
+
 // Helper function for number formatting with commas
 const formatNumber = (num) => {
-  if (num === null || num === undefined || isNaN(num)) {
-    return '0'; // Or handle as appropriate, e.g., return '-'
-  }
   return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
 
 // Helper function for delay
-//const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Component for the header
 const Header = ({ onMenuPress }) => {
@@ -85,7 +85,7 @@ const TabNavigation = ({ activeTab, setActiveTab }) => {
 };
 
 // Component for the stock list
-const StockList = ({ stocks, isLoading, onScroll, setActiveTab, setGlobalSearchTerm, onAddStockPress }) => {
+const StockList = ({ stocks, isLoading, onScroll, setActiveTab, setGlobalSearchTerm }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const screenWidth = Dimensions.get('window').width;
   const [sortBy, setSortBy] = useState('ticker'); // State for sorting
@@ -110,11 +110,9 @@ const StockList = ({ stocks, isLoading, onScroll, setActiveTab, setGlobalSearchT
 
   // Consolidate stocks by ticker
   const consolidatedStocks = {};
-  // stocks.forEach(stock => {
-  //   const ticker = stock.ticker;
-  (stocks || []).forEach(stock => { // Add guard for stocks array
-   const ticker = stock.ticker?.toUpperCase() || 'UNKNOWN'; // Handle potential missing ticker
-     
+  stocks.forEach(stock => {
+    const ticker = stock.ticker;
+    
     if (!consolidatedStocks[ticker]) {
       consolidatedStocks[ticker] = {
         ticker,
@@ -125,7 +123,7 @@ const StockList = ({ stocks, isLoading, onScroll, setActiveTab, setGlobalSearchT
         pnl: 0,
         pnlPercentage: 0,
         portfolioPercentage: 0,
-        type: stock.type || 'stock' // Preserve the type
+        type: stock.type // Preserve the type
       };
     }
     
@@ -723,53 +721,16 @@ export default function App() {
   const [isEditingStock, setIsEditingStock] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
-  const [isClearDataModalVisible, setIsClearDataModalVisible] = useState(false);
+  const [isModalVisible, setIsModalVisible] = useState(false);
   const [isPopupVisible, setIsPopupVisible] = useState(false);
   const [popupMessage, setPopupMessage] = useState('');
   const [isImportModalVisible, setIsImportModalVisible] = useState(false);
   const [importData, setImportData] = useState(null);
 
-  // Load data on app load and define loadStocks using useCallback
-  const loadStocks = useCallback(async (showPopup = true) => { // Added showPopup flag
-    console.log("loadStocks triggered");
-    setIsLoading(true);
-    setError(null);
-    try {
-      // 1. Check history and potentially trigger Edge Function to refresh cache/history
-      await refreshPortfolioDataIfNeeded();
-      console.log("Potential refresh complete.");
-
-      // 2. Fetch all raw stock data from 'stocks' table
-      const rawStockData = await fetchStocks();
-      console.log(`Fetched ${rawStockData.length} raw stock entries.`);
-
-      // 3. Fetch all current prices from 'stock_cache'
-      const cachedPricesMap = await fetchAllCachedStockData();
-      console.log(`Fetched ${cachedPricesMap.size} prices from cache.`);
-
-      // 4. Process data using fetched prices
-      processStockData(rawStockData, cachedPricesMap); // Pass prices map
-      console.log("Stock data processed.");
-
-      if (showPopup) {
-        setPopupMessage('Portfolio data refreshed successfully!');
-        setIsPopupVisible(true);
-        setTimeout(() => setIsPopupVisible(false), 3000);
-      }
-    } catch (err) { // Changed variable name to avoid conflict
-      console.error('Error loading stocks:', err);
-      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-      setError(`Failed to load portfolio: ${errorMessage}`);
-      Alert.alert('Error Loading Data', `Could not load portfolio data. ${errorMessage}`);
-    } finally {
-      setIsLoading(false);
-      console.log("loadStocks finished");
-    }
-  }, []);
   // Load data from Supabase on app load
   useEffect(() => {
     loadStocks();
-  }, [loadStocks]);
+  }, []);
   
   // Reset search term when changing tabs
   useEffect(() => {
@@ -777,6 +738,34 @@ export default function App() {
       setGlobalSearchTerm('');
     }
   }, [activeTab]);
+
+  const loadStocks = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      // Fetch stocks from Supabase or your data source
+      const stockData = await fetchStocks();
+
+      // Process the stock data (fetch prices from Yahoo in the background)
+      await processStockData(stockData);
+
+      // Show the popup when refresh is complete
+      setPopupMessage('Stock prices refreshed successfully!');
+      setIsPopupVisible(true);
+
+      // Hide the popup after 3 seconds
+      setTimeout(() => {
+        setIsPopupVisible(false);
+      }, 3000);
+    } catch (error) {
+      console.error('Error loading stocks:', error);
+      setError(error.message);
+      Alert.alert('Error', error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleFileSelect = async (result) => {
     try {
@@ -801,8 +790,8 @@ export default function App() {
             
             console.log('Workbook sheets:', workbook.SheetNames); // Debug log
       
-            const sheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
             const jsonData = XLSX.utils.sheet_to_json(worksheet);
             
             console.log('Parsed Excel data:', jsonData); // Debug log
@@ -838,7 +827,7 @@ export default function App() {
         const workbook = XLSX.read(base64Content, { type: 'base64' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+      const jsonData = XLSX.utils.sheet_to_json(worksheet);
         
         console.log('Parsed Excel data:', jsonData); // Debug log
         
@@ -958,7 +947,7 @@ export default function App() {
       setIsAddingStock(false);
       setIsEditingStock(false);
       setSelectedStock(null);
-      await loadStocks(false);
+      await loadStocks();
     } catch (error) {
       console.error('Error managing stock:', error);
       Alert.alert('Error', error.message);
@@ -969,28 +958,19 @@ export default function App() {
   
   const handleClearAllData = async () => {
     console.log("Clear button clicked");
-    setIsClearDataModalVisible(true); // Use the correct setter
+    setIsModalVisible(true); // Show the modal
   };
 
   const confirmClearAllData = async () => {
     try {
-      setIsLoading(true); // Show loading indicator during deletion
       console.log("Delete All confirmed");
-      await truncateStocks(); // Use the service function
+      await truncateStocks();
       console.log("All stocks cleared successfully");
-      setStocks([]); // Immediately clear client-side state
-      setAccounts({});
-      // Optionally call loadStocks() if you want to fetch anything remaining or confirm empty state
-      // await loadStocks(false);
-      setPopupMessage('All stock data cleared!');
-      setIsPopupVisible(true);
-      setTimeout(() => setIsPopupVisible(false), 3000);
+      await loadStocks(); // Reload the stock list or perform any other actions
     } catch (error) {
       console.error("Error clearing data:", error);
-      Alert.alert('Error', `Failed to clear data: ${error.message}`);
     } finally {
-      setIsClearDataModalVisible(false); // Use the correct setter
-      setIsLoading(false);
+      setIsModalVisible(false); // Hide the modal
     }
   };
 
@@ -1035,96 +1015,217 @@ export default function App() {
     return key ? obj[key] : null;
   };
 
-    // --- processStockData (Simplified: uses cachedPricesMap) ---
-    const processStockData = (rawData, cachedPricesMap) => {
-      console.log(`Processing ${rawData.length} raw stocks with ${cachedPricesMap.size} cached prices.`);
-      try {
-        // 1. Process each stock entry using the cache
-        const processedStocks = rawData.map(stock => {
-          const ticker = stock.ticker?.toUpperCase(); // Ensure uppercase for lookup
-          let currentPrice = 0;
-  
-          if (ticker === "CASH") {
-            currentPrice = 1.0;
-          } else if (ticker && cachedPricesMap.has(ticker)) {
-            currentPrice = cachedPricesMap.get(ticker) ?? 0; // Use cached price, default to 0 if null/undefined
-          } else {
-            // Fallback if ticker is missing or not in cache (should be rare if refresh worked)
-            console.warn(`Price not found in cache for ticker: ${ticker}. Using 0.`);
-            currentPrice = 0;
-          }
-  
-          const quantity = stock.quantity ?? 0;
-          // Use costBasis field which should be mapped in fetchStocks or provided directly
-          const costBasis = stock.costBasis ?? 0;
-  
-          const currentValue = currentPrice * quantity;
-          const totalCost = costBasis * quantity;
-          const pnl = currentValue - totalCost;
-          const pnlPercentage = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
-  
-          return {
-            ...stock, // Includes id, ticker, account, quantity, type, costBasis
-            currentPrice,
-            currentValue,
-            totalCost, // Keep totalCost for reference if needed
-            pnl,
-            pnlPercentage,
-            portfolioPercentage: 0, // Calculated next
-          };
+  const processStockData = async (data) => {
+    try {
+      // Normalize the data (handle different column names)
+      const normalizedData = data.map(row => {
+        let type = getValueByKeyPrefix(row, 'type');
+        if (!type) {
+          throw new Error(`Missing type for ${getValueByKeyPrefix(row, 'ticker')}. Type must be 'Stock', 'ETF', or 'CASH'.`);
+        }
+        type = type.toLowerCase();
+
+        return {
+          id: row.id,
+          ticker: getValueByKeyPrefix(row, 'ticker'),
+          account: getValueByKeyPrefix(row, 'account'),
+          quantity: parseFloat(getValueByKeyPrefix(row, 'quantity') || 0),
+          costBasis: parseFloat(getValueByKeyPrefix(row, 'costbasis') || 0),
+          type: type,
+        };
+      });
+
+      // Get unique tickers
+      const tickers = [...new Set(normalizedData.map(item => item.ticker))];
+
+      // Helper function to process a chunk of tickers
+      const processChunk = async (chunk) => {
+        const stockDataPromises = chunk.map(fetchYahooFinanceData); // Fetch data for all tickers in the chunk
+        const stockDataResults = await Promise.all(stockDataPromises); // Wait for all requests in the chunk to complete
+        return stockDataResults;
+      };
+
+      // Fetch current prices in chunks of 5 tickers
+      const stockDataMap = {};
+      for (let i = 0; i < tickers.length; i += 5) {
+        const chunk = tickers.slice(i, i + 5); // Get the next chunk of 5 tickers
+        console.log(`Processing chunk: ${chunk.join(', ')}`);
+
+        const stockDataResults = await processChunk(chunk); // Process the chunk
+        stockDataResults.forEach(data => {
+          if (data) stockDataMap[data.ticker] = data; // Add the results to the stockDataMap
         });
-  
-        // 2. Calculate total portfolio value
-        const totalPortfolioValue = processedStocks.reduce((sum, stock) => sum + (stock.currentValue || 0), 0);
-        console.log(`Total Portfolio Value: ${totalPortfolioValue}`);
-  
-        // 3. Calculate portfolio percentage for each stock
-        const stocksWithPortfolioPercentage = processedStocks.map(stock => ({
-          ...stock,
-          portfolioPercentage: totalPortfolioValue > 0 ? ((stock.currentValue || 0) / totalPortfolioValue) * 100 : 0,
-        }));
-  
-        // 4. Group stocks by account and calculate account totals
-        const accountsMap = {};
-        stocksWithPortfolioPercentage.forEach(stock => {
-          const accountName = stock.account || 'Uncategorized'; // Handle missing account name
-          if (!accountsMap[accountName]) {
-            accountsMap[accountName] = {
-              stocks: [],
-              totalValue: 0,
-              totalCost: 0,
-              pnl: 0,
-              pnlPercentage: 0
-            };
-          }
-          accountsMap[accountName].stocks.push(stock);
-          accountsMap[accountName].totalValue += stock.currentValue || 0;
-          // Recalculate total cost per account based on included stocks
-          accountsMap[accountName].totalCost += (stock.costBasis ?? 0) * (stock.quantity ?? 0);
-        });
-  
-        // Calculate P&L for each account
-        Object.keys(accountsMap).forEach(accountName => {
-          const account = accountsMap[accountName];
-          account.pnl = account.totalValue - account.totalCost;
-          account.pnlPercentage = account.totalCost > 0 ? (account.pnl / account.totalCost) * 100 : 0;
-        });
-  
-        // 5. Update state
-        setStocks(stocksWithPortfolioPercentage);
-        setAccounts(accountsMap);
-        console.log(`Processing complete. ${stocksWithPortfolioPercentage.length} stocks, ${Object.keys(accountsMap).length} accounts.`);
-  
-      } catch (error) {
-        console.error('Error processing stock data:', error);
-        setError(`Error processing data: ${error.message}`);
-        Alert.alert('Data Processing Error', `Could not process portfolio data: ${error.message}`);
-        // Clear potentially inconsistent state
-        setStocks([]);
-        setAccounts({});
+
+        if (i + 5 < tickers.length) {
+          console.log('Waiting for 2 minutes before processing the next chunk...');
+          await delay(100); // Wait for 2 minutes (120,000 ms) before processing the next chunk
+        }
       }
-      // Removed the finally block that set isLoading to false, as it's handled in loadStocks
-    };  
+      
+      // Process each stock entry
+      const processedStocks = normalizedData.map(stock => {
+        const marketData = stockDataMap[stock.ticker] || { currentPrice: 0 };
+
+        // Force CASH ticker to always have price of 1.0
+        let currentPrice = stock.ticker === "CASH" ? 1.0 : marketData.currentPrice || 0;
+
+        // If price is 0 (not found), use a cost-basis-based fallback
+        if (currentPrice === 0) {
+          currentPrice = (stock.costBasis || 0) * 0; // Use cost basis + 5% as fallback
+          console.log(`Using fallback price for ${stock.ticker}: $${currentPrice.toFixed(2)}`);
+        }
+
+        const quantity = stock.quantity || 0;
+        const costBasis = stock.costBasis || 0;
+
+        const currentValue = currentPrice * quantity;
+        const totalCost = costBasis * quantity;
+        const pnl = currentValue - totalCost;
+        const pnlPercentage = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
+        
+        return {
+          ...stock,
+          currentPrice,
+          currentValue,
+          pnl,
+          pnlPercentage,
+          portfolioPercentage: 0, // Will be calculated after
+        };
+      });
+      
+      // Calculate portfolio percentage
+      const totalPortfolioValue = processedStocks.reduce((sum, stock) => sum + (stock.currentValue || 0), 0);
+      const stocksWithPortfolioPercentage = processedStocks.map(stock => ({
+        ...stock,
+        portfolioPercentage: totalPortfolioValue > 0 ? ((stock.currentValue || 0) / totalPortfolioValue) * 100 : 0,
+      }));
+
+      // Group stocks by account
+      const accountsMap = {};
+      stocksWithPortfolioPercentage.forEach(stock => {
+        if (!accountsMap[stock.account]) {
+          accountsMap[stock.account] = {
+            stocks: [],
+            totalValue: 0,
+            totalCost: 0,
+            pnl: 0,
+            pnlPercentage: 0
+          };
+        }
+        accountsMap[stock.account].stocks.push(stock);
+        accountsMap[stock.account].totalValue += stock.currentValue || 0;
+        accountsMap[stock.account].totalCost += (stock.costBasis * stock.quantity) || 0;
+      });
+
+      // Calculate P&L for each account
+      Object.keys(accountsMap).forEach(accountName => {
+        const account = accountsMap[accountName];
+        account.pnl = account.totalValue - account.totalCost;
+        account.pnlPercentage = account.totalCost > 0 ? (account.pnl / account.totalCost) * 100 : 0;
+      });
+
+      // Update both states
+      setStocks(stocksWithPortfolioPercentage);
+      setAccounts(accountsMap);
+
+    } catch (error) {
+      console.error('Error processing stock data:', error);
+      setError(`Error processing data: ${error.message}`);
+      Alert.alert('Data Processing Error', error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+// Using fetchYahooFinanceData function to get stock prices
+const fetchYahooFinanceData = async (ticker) => {
+  try {
+    if (ticker === "CASH") {
+      console.log(`Ticker CASH: fixed price = $1.00`);
+      return { ticker, currentPrice: 1.0 };
+    }
+
+    console.log(`Checking cache for ${ticker}...`);
+
+    // Fetch cached data
+    const cachedData = await getCachedStockData(ticker);
+    if (cachedData) {
+      const lastRefreshed = new Date(cachedData.last_refreshed);
+      const now = new Date();
+
+      // Use cached data if it was refreshed within the last 2 hours
+      const hoursSinceLastRefresh = (now - lastRefreshed) / (1000 * 60 * 60);
+      if (hoursSinceLastRefresh < 2) {
+        console.log(`Using cached data for ${ticker}: $${cachedData.current_price}`);
+        return { ticker, currentPrice: cachedData.current_price };
+      }
+    }
+
+    console.log(`Fetching fresh data for ${ticker} from Yahoo Finance...`);
+
+    // Fetch fresh data from Yahoo Finance
+    const yahooFinanceUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d`;
+    const proxyUrl = Platform.OS === 'web' ? 'https://cors-anywhere.herokuapp.com/' : '';
+    const response = await axios.get(proxyUrl + yahooFinanceUrl);
+
+    if (response.data?.chart?.result?.[0]?.meta?.regularMarketPrice) {
+      const price = response.data.chart.result[0].meta.regularMarketPrice;
+      console.log(`Successfully fetched Yahoo price for ${ticker}: $${price}`);
+
+      // Update the cache
+      await updateStockCache(ticker, price);
+
+      return { ticker, currentPrice: price };
+    }
+
+    // If Yahoo fails, check the cache again
+    console.error(`Yahoo Finance failed. Attempting to use cached data for ${ticker}...`);
+    if (cachedData) {
+      console.error(`Using cached value: $${cachedData.current_price}`);
+      return { ticker, currentPrice: cachedData.current_price };
+    }
+
+    console.error(`No cached data available for ${ticker}. Returning $0.`);
+    return { ticker, currentPrice: 0 }; // Return $0 if no cached data is available
+    } catch (error) {
+    console.error(`Error fetching price for ${ticker}:`, error.message);
+    // Attempt to fetch from cache if Yahoo fails
+    const cachedData = await getCachedStockData(ticker);
+    if (cachedData) {
+      console.error(`Using cached value: $${cachedData.current_price}`);
+      return { ticker, currentPrice: cachedData.current_price };
+    }
+    return { ticker, currentPrice: 0 }; // Return $0 if no cached data is available
+  }
+};
+
+  // Function to get stock price from Google Finance
+  const getGoogleFinancePrice = async (ticker) => {
+    try {
+      const exchanges = ['NASDAQ', 'NYSE'];
+      
+      for (const exchange of exchanges) {
+        try {
+          const url = `https://www.google.com/finance/quote/${ticker}:${exchange}`;
+          const response = await fetch(url);
+          const html = await response.text();
+          
+          const priceMatch = html.match(/data-last-price="([0-9,.]+)"/);
+          if (priceMatch && priceMatch[1]) {
+            const price = parseFloat(priceMatch[1].replace(/,/g, ''));
+            console.log(`Found price ${price} for ${ticker} from Google Finance (${exchange})`);
+            return price;
+          }
+        } catch (exchangeError) {
+          console.log(`Error fetching ${ticker} from ${exchange}: ${exchangeError.message}`);
+        }
+      }
+      return 0;
+    } catch (error) {
+      console.error(`Failed to get price for ${ticker} from Google:`, error);
+      return 0;
+    }
+  };
   
   // Function to handle stock edit selection
   const handleEditStock = (stock) => {
@@ -1183,7 +1284,11 @@ export default function App() {
     
     const handleScroll = (event) => {
       const scrollY = event.nativeEvent.contentOffset.y;
-      setIsSummaryCollapsed(scrollY > 10);
+      if (scrollY > 10 && !isSummaryCollapsed) {
+        setIsSummaryCollapsed(true);
+      } else if (scrollY <= 10 && isSummaryCollapsed) {
+        setIsSummaryCollapsed(false);
+      }
     };
     
     switch (activeTab) {
@@ -1204,7 +1309,7 @@ export default function App() {
         return (
           <AccountDetailView 
             accounts={accounts} 
-            isLoading={isLoading && Object.keys(accounts).length === 0} 
+            isLoading={isLoading} 
             handleEditStock={handleEditStock}
             searchTerm={globalSearchTerm}
             setSearchTerm={setGlobalSearchTerm}
@@ -1215,27 +1320,10 @@ export default function App() {
           <PortfolioGraph /> // Render the new graph component
         );
       default:
-        return (
-          <View style={styles.tabContent}>
-            <PortfolioSummary stocks={stocks} forceCollapse={isSummaryCollapsed} />
-            <StockList
-              stocks={stocks}
-              isLoading={isLoading && stocks.length === 0}
-              onScroll={handleScroll}
-              setActiveTab={setActiveTab}
-              setGlobalSearchTerm={setGlobalSearchTerm}
-            />
-          </View>
-        );
+        return <StockList stocks={stocks} isLoading={isLoading} />;
     }
   };
 
-  // Function to open the Add Stock modal
-  const openAddStockModal = () => {
-    setSelectedStock(null);
-    setIsEditingStock(false);
-    setIsAddingStock(true);
-};
   return (
     <SafeAreaView style={styles.container}>
       <Header onMenuPress={() => setMenuVisible(true)} />
@@ -1243,14 +1331,16 @@ export default function App() {
       {error && <Text style={styles.errorText}>{error}</Text>}
       {renderActiveTab()}
       
-      {/* Floating Add Button - Visible on Portfolio and Account Detail tabs */}
-      {(activeTab === 'portfolio' || activeTab === 'accountDetail') && (
-          <View style={styles.addButtonContainer}>
-              <TouchableOpacity style={styles.addButton} onPress={openAddStockModal}>
-                  <Text style={styles.addButtonText}>+</Text>
-              </TouchableOpacity>
-          </View>
-      )}
+      {/* Add Stock Button */}
+      <View style={styles.addButtonContainer}>
+        <TouchableOpacity style={styles.addButton} onPress={() => {
+          setSelectedStock(null);
+          setIsEditingStock(false);
+          setIsAddingStock(true);
+        }}>
+          <Text style={styles.addButtonText}>+</Text> {/* Change text to '+' */}
+        </TouchableOpacity>
+      </View>
       
       {/* Menu Drawer */}
       <MenuDrawer 
@@ -1309,35 +1399,35 @@ export default function App() {
         isEditing={isEditingStock}
       />
 
-      {/* Clear Data Confirmation Modal */}
+      {/* Custom Modal */}
       <Modal
-        visible={isClearDataModalVisible} // Use correct state variable
+        visible={isModalVisible}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setIsClearDataModalVisible(false)}
+        onRequestClose={() => setIsModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Confirm Clear Data</Text>
+            <Text style={styles.modalTitle}>Warning</Text>
             <Text style={styles.modalMessage}>
-              This will delete ALL stocks from the database. This action cannot be undone. Are you sure?
+              This will delete ALL stocks from the database. This action cannot be undone.
             </Text>
             <View style={styles.modalButtons}>
-              <TouchableOpacity
+            <TouchableOpacity 
                 style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setIsClearDataModalVisible(false)} // Use correct state setter
+                onPress={() => setIsModalVisible(false)}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+            </TouchableOpacity>
+            <TouchableOpacity 
                 style={[styles.modalButton, styles.confirmButton]}
-                onPress={confirmClearAllData} // Use correct handler
+                onPress={confirmClearAllData}
               >
                 <Text style={styles.confirmButtonText}>Delete All</Text>
-              </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
+            </View>
       </Modal>
 
       {/* Import Confirmation Modal */}
@@ -1378,13 +1468,6 @@ export default function App() {
 
       {/* Popup Notification */}
       <PopupNotification visible={isPopupVisible} message={popupMessage} />
-
-      {/* Global Loading Indicator (Optional) */}
-      {isLoading && (
-          <View style={styles.globalLoadingOverlay}>
-              <ActivityIndicator size="large" color="#FFFFFF" />
-          </View>
-      )}
     </SafeAreaView>
   );
 }
@@ -2187,17 +2270,6 @@ const styles = StyleSheet.create({
     width: '100%',
     borderWidth: 0, // Remove border
     backgroundColor: 'white', // Optional: Set background color
-  },
-  globalLoadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 2000, // Ensure it's above other elements
   },
 });
 

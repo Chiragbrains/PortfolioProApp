@@ -4,9 +4,11 @@ import { Modal, StyleSheet, Text, View, TouchableOpacity, ScrollView, SafeAreaVi
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
-import { fetchStocks, addStock, updateStock, deleteStock, bulkImportStocks, truncateStocks, fetchStockByTickerAndAccount, refreshPortfolioDataIfNeeded, fetchAllCachedStockData } from './stocksService';
+import { fetchStocks, addStock, updateStock, deleteStock, bulkImportStocks, truncateStocks, fetchStockByTickerAndAccount, refreshPortfolioDataIfNeeded, fetchAllCachedStockData, fetchPortfolioHistory } from './stocksService';
 import AddStockForm from './AddStockForm';
 import PortfolioGraph from './PortfolioGraph'; // Add this import
+
+import { useSupabaseConfig } from './SupabaseConfigContext'; // Import the hook
 
 
 // Helper function for number formatting with commas
@@ -34,7 +36,7 @@ const Header = ({ onMenuPress }) => {
 };
 
 // Component for the menu drawer
-const MenuDrawer = ({ visible, onClose, onImportPress, onClearDataPress }) => {
+const MenuDrawer = ({ visible, onClose, onImportPress, onClearDataPress,onDisconnectPress }) => {
   if (!visible) return null;
   
   return (
@@ -52,6 +54,10 @@ const MenuDrawer = ({ visible, onClose, onImportPress, onClearDataPress }) => {
         </TouchableOpacity>
         <TouchableOpacity style={styles.menuItem} onPress={onClearDataPress}>
           <Text style={styles.menuItemText}>Clear All Data</Text>
+        </TouchableOpacity>
+        <View style={styles.menuSeparator} />
+        <TouchableOpacity style={styles.menuItem} onPress={onDisconnectPress}>
+          <Text style={[styles.menuItemText, styles.disconnectText]}>Disconnect Supabase</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -85,11 +91,39 @@ const TabNavigation = ({ activeTab, setActiveTab }) => {
 };
 
 // Component for the stock list
-const StockList = ({ stocks, isLoading, onScroll, setActiveTab, setGlobalSearchTerm, onAddStockPress }) => {
+       // <Text style={styles.emptyStateText}>No stocks imported yet. Please import an Excel file.</Text>
+const StockList = ({ stocks, isLoading, onScroll, setActiveTab, setGlobalSearchTerm, lastRefreshedTimestamp }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const screenWidth = Dimensions.get('window').width;
   const [sortBy, setSortBy] = useState('ticker'); // State for sorting
   
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) {
+        // console.log("formatTimestamp: Received null or undefined timestamp");
+        return null;
+    }
+    try {
+        const date = new Date(timestamp);
+        if (isNaN(date.getTime())) {
+            console.error("formatTimestamp: Invalid date created from timestamp:", timestamp);
+            return "Invalid Date";
+        }
+        const formatted = `Last updated: ${date.toLocaleDateString(undefined, {
+            month: 'short', day: 'numeric',
+        })} ${date.toLocaleTimeString(undefined, {
+            hour: 'numeric', minute: '2-digit'
+        })} (Refreshes if > 2hrs old)`;
+        //console.log(`formatTimestamp: Formatted '${timestamp}' to '${formatted}'`);
+        return formatted;
+    } catch (e) {
+        console.error("Error formatting timestamp:", timestamp, e);
+        return "Error formatting date";
+    }
+};
+
+// Calculate the formatted timestamp using the prop inside the component body
+const formattedTimestamp = formatTimestamp(lastRefreshedTimestamp);
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -212,6 +246,13 @@ const StockList = ({ stocks, isLoading, onScroll, setActiveTab, setGlobalSearchT
           </Picker>
         </View>
       </View>
+
+      {/* Last Refreshed Timestamp - This should now work */}
+      {formattedTimestamp && (
+                <View style={styles.lastRefreshedContainer}>
+                    <Text style={styles.lastRefreshedText}>{formattedTimestamp}</Text>
+                </View>
+            )}
 
       <ScrollView 
         style={styles.modernStockList}
@@ -728,24 +769,50 @@ export default function App() {
   const [popupMessage, setPopupMessage] = useState('');
   const [isImportModalVisible, setIsImportModalVisible] = useState(false);
   const [importData, setImportData] = useState(null);
+  const [isDisconnectModalVisible, setIsDisconnectModalVisible] = useState(false); // <-- Add this line
+  const [lastRefreshedTimestamp, setLastRefreshedTimestamp] = useState(null);
+  const [isSummaryCollapsed, setIsSummaryCollapsed] = useState(false);
 
+  const { supabaseClient, clearConfig } = useSupabaseConfig(); // Get the dynamic client
+
+  
   // Load data on app load and define loadStocks using useCallback
   const loadStocks = useCallback(async (showPopup = true) => { // Added showPopup flag
-    console.log("loadStocks triggered");
+    if (!supabaseClient) { // Guard against missing client
+      console.error("Supabase client not available in loadStocks");
+      setError("Configuration error. Please check settings.");
+      return;
+  }console.log("loadStocks triggered");
     setIsLoading(true);
     setError(null);
+    setLastRefreshedTimestamp(null); // Reset timestamp on load
+
     try {
-      // 1. Check history and potentially trigger Edge Function to refresh cache/history
-      await refreshPortfolioDataIfNeeded();
-      console.log("Potential refresh complete.");
+            // 1. Check history and potentially trigger Edge Function to refresh cache/history
+            await refreshPortfolioDataIfNeeded(supabaseClient);
+            console.log("Potential refresh complete.");
 
-      // 2. Fetch all raw stock data from 'stocks' table
-      const rawStockData = await fetchStocks();
-      console.log(`Fetched ${rawStockData.length} raw stock entries.`);
+            // 2. Fetch stocks, prices, and the *very latest* history entry
+            const [rawStockData, cachedPricesMap, latestHistory] = await Promise.all([
+              fetchStocks(supabaseClient),
+              fetchAllCachedStockData(supabaseClient),
+              fetchPortfolioHistory(supabaseClient, 1) // <-- Fetch only last day(s)
+          ]);
 
-      // 3. Fetch all current prices from 'stock_cache'
-      const cachedPricesMap = await fetchAllCachedStockData();
-      console.log(`Fetched ${cachedPricesMap.size} prices from cache.`);
+          console.log(`Fetched ${rawStockData.length} raw stock entries.`);
+          console.log(`Fetched ${cachedPricesMap.size} prices from cache.`);
+
+          // 3. Extract timestamp from the latest history entry
+          let latestTimestamp = null;
+          if (latestHistory && latestHistory.length > 0) {
+              // Get the last element (most recent date)
+              const mostRecentEntry = latestHistory[latestHistory.length - 1];
+              latestTimestamp = mostRecentEntry?.created_at; // Get its created_at
+          }
+          //console.log(`Extracted latest timestamp: ${latestTimestamp}`);
+
+          // Update timestamp state
+          setLastRefreshedTimestamp(latestTimestamp); // <-- Set timestamp state
 
       // 4. Process data using fetched prices
       processStockData(rawStockData, cachedPricesMap); // Pass prices map
@@ -754,22 +821,29 @@ export default function App() {
       if (showPopup) {
         setPopupMessage('Portfolio data refreshed successfully!');
         setIsPopupVisible(true);
-        setTimeout(() => setIsPopupVisible(false), 3000);
+        setTimeout(() => setIsPopupVisible(false), 2000);
       }
     } catch (err) { // Changed variable name to avoid conflict
       console.error('Error loading stocks:', err);
-      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-      setError(`Failed to load portfolio: ${errorMessage}`);
+      if (err.message.includes('JWT') || err.message.includes('Unauthorized') || err.message.includes('fetch')) {
+        setError(`Connection failed: ${err.message}. Please check Supabase settings.`);
+        // Optionally clear bad config here or prompt user
+        // await clearConfig();
+    } else {
+        setError(`Failed to load portfolio: ${errorMessage}`);
+    } 
       Alert.alert('Error Loading Data', `Could not load portfolio data. ${errorMessage}`);
     } finally {
       setIsLoading(false);
       console.log("loadStocks finished");
     }
-  }, []);
+  }, [supabaseClient]);
   // Load data from Supabase on app load
   useEffect(() => {
-    loadStocks();
-  }, [loadStocks]);
+    if (supabaseClient) { // Only load if client exists
+      loadStocks();
+    }
+  }, [supabaseClient, loadStocks]);
   
   // Reset search term when changing tabs
   useEffect(() => {
@@ -847,9 +921,8 @@ export default function App() {
     } catch (error) {
       console.error('File processing error:', error);
       Alert.alert('Error', error.message);
-    } finally {
       setIsLoading(false);
-    }
+    } 
   };
   
   // Helper function to process Excel data
@@ -900,7 +973,7 @@ export default function App() {
           updated_at: new Date().toISOString(),
         };
 
-        console.log(`Processed row ${index + 1}:`, normalized); // Debug log
+        //console.log(`Processed row ${index + 1}:`, normalized); // Debug log
         return normalized;
       });
 
@@ -912,10 +985,16 @@ export default function App() {
     } catch (error) {
       console.error('Excel processing error:', error);
       setError(error.message);
+      setIsLoading(false);
     }
   };
     
   const handleAddStock = async (stockData) => {
+    if (!supabaseClient) { // Guard against missing client
+      console.error("Supabase client not available in loadStocks");
+      setError("Configuration error. Please check settings.");
+      return;
+  }
     try {
       setIsLoading(true);
       
@@ -935,14 +1014,14 @@ export default function App() {
       };
   
       // Check if the stock already exists
-      const existingStock = await getStockByTickerAndAccount(processedData.ticker, processedData.account);
+      const existingStock = await getStockByTickerAndAccount(supabaseClient, processedData.ticker, processedData.account);
       
       if (existingStock) {
         // Calculate new quantity and weighted average cost basis
         const newQuantity = existingStock.quantity + processedData.quantity;
         const newCostBasis = ((existingStock.cost_basis * existingStock.quantity) + (processedData.costBasis * processedData.quantity)) / newQuantity;
 
-        await updateStock(existingStock.id, {
+        await updateStock(supabaseClient,existingStock.id, {
           quantity: newQuantity,
           costBasis: newCostBasis, // Update with the new weighted average cost basis
           type: existingStock.type,
@@ -950,9 +1029,11 @@ export default function App() {
         Alert.alert("Success", "Stock updated successfully!");
       } else {
         // Add new stock
-        await addStock(processedData);
-        Alert.alert("Success", `Stock added successfully!`);
+        await addStock(supabaseClient, processedData);
+        Alert.alert("Success", `Stock added successfully!`);        
       }
+      
+      
       
       // Close form and reload stocks
       setIsAddingStock(false);
@@ -973,10 +1054,15 @@ export default function App() {
   };
 
   const confirmClearAllData = async () => {
+    if (!supabaseClient) { // Guard against missing client
+      console.error("Supabase client not available in loadStocks");
+      setError("Configuration error. Please check settings.");
+      return;
+  }
     try {
       setIsLoading(true); // Show loading indicator during deletion
       console.log("Delete All confirmed");
-      await truncateStocks(); // Use the service function
+      await truncateStocks(supabaseClient); // Use the service function
       console.log("All stocks cleared successfully");
       setStocks([]); // Immediately clear client-side state
       setAccounts({});
@@ -1137,13 +1223,18 @@ export default function App() {
   };
 
   const handleUpdateStock = async (stockData) => {
+    if (!supabaseClient) { // Guard against missing client
+      console.error("Supabase client not available in loadStocks");
+      setError("Configuration error. Please check settings.");
+      return;
+      }
     try {
       setIsLoading(true);
       console.log("Stock data received:", stockData); // Debug log
 
     if (stockData.action === 'delete') {
       console.log("Delete action triggered for stock ID:", stockData.id); // Debug log
-      await deleteStock(stockData.id); // Ensure this is called
+      await deleteStock(supabaseClient, stockData.id); // Ensure this is called
       Alert.alert("Success", "Stock deleted successfully!");
       // Close form and reload stocks
       setIsEditingStock(false);
@@ -1163,13 +1254,13 @@ export default function App() {
         type: stockData.type, // Keep the existing type
       };
 
-      await updateStock(stockData.id, updatedData);
+      await updateStock(supabaseClient, stockData.id, updatedData);
       Alert.alert("Success", "Stock updated successfully!");
 
       // Close form and reload stocks
       setIsEditingStock(false);
       setSelectedStock(null);
-      await loadStocks();
+      await loadStocks(false);
     } catch (error) {
       console.error('Error updating stock:', error);
       Alert.alert('Error', error.message);
@@ -1197,6 +1288,7 @@ export default function App() {
               onScroll={handleScroll}
               setActiveTab={setActiveTab}
               setGlobalSearchTerm={setGlobalSearchTerm}
+              lastRefreshedTimestamp={lastRefreshedTimestamp} // Prop passed here
             />
       </View>
     );
@@ -1264,7 +1356,6 @@ export default function App() {
               const input = document.createElement('input');
               input.type = 'file';
               input.accept = '.xlsx,.xls';
-              
               input.onchange = (e) => {
                 console.log('File selected'); // Debug log
                 const file = e.target.files[0];
@@ -1293,7 +1384,15 @@ export default function App() {
             Alert.alert('Error', 'Failed to pick document. Please try again.');
           }
         }}
-        onClearDataPress={handleClearAllData}
+        onClearDataPress={() => {
+          setMenuVisible(false);
+          handleClearAllData();
+        }}
+        onDisconnectPress={async () => { // Pass the handler
+          console.log("Disconnect button pressed in MenuDrawer");
+          setMenuVisible(false); // Close the menu
+          setIsDisconnectModalVisible(true); // Show the custom confirmation modal
+      }}
       />
       
       {/* Add/Edit Stock Form Modal */}
@@ -1330,10 +1429,66 @@ export default function App() {
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalButton, styles.confirmButton]}
+                style={[styles.modalButton, styles.confirmButton, { backgroundColor: '#dc3545' }]}
                 onPress={confirmClearAllData} // Use correct handler
               >
                 <Text style={styles.confirmButtonText}>Delete All</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+{/* Disconnect Confirmation Modal */}
+      <Modal
+        visible={isDisconnectModalVisible} // Use the state variable
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsDisconnectModalVisible(false)} // Allow closing via back button etc.
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Confirm Disconnect</Text>
+            <Text style={styles.modalMessage}>
+              Are you sure you want to disconnect from Supabase? You will need to re-enter your URL and Key to use the app again.
+            </Text>
+            <View style={styles.modalButtons}>
+              {/* Cancel Button */}
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setIsDisconnectModalVisible(false)} // Just close the modal
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              {/* Confirm Disconnect Button */}
+              <TouchableOpacity
+                style={[styles.modalButton, styles.confirmButton]} 
+                onPress={async () => {
+                  console.log("Disconnect confirmed in Modal");
+                  setIsDisconnectModalVisible(false); // Close the modal
+
+                  // --- Disconnect Logic ---
+                  try {
+                      await clearConfig(); // Call the function from context
+                      console.log("clearConfig finished successfully.");
+                      // Reset app state
+                      setStocks([]);
+                      setAccounts({});
+                      setError(null);
+                      // Optional success message
+                      setPopupMessage('Disconnected successfully!');
+                      setIsPopupVisible(true);
+                      setTimeout(() => setIsPopupVisible(false), 2000);
+                  } catch (error) {
+                      console.error("Error during disconnect:", error);
+                      // Show error using Alert (or another custom modal/popup if Alert is unreliable)
+                      Alert.alert("Error", "Failed to disconnect. Please try again.");
+                  }
+                  // --- End Disconnect Logic ---
+                }}
+              >
+                <Text style={styles.confirmButtonText}>Disconnect</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1350,15 +1505,20 @@ export default function App() {
           setIsLoading(false);
         }}
         onConfirm={async () => {
+          if (!supabaseClient) { // Guard against missing client
+            console.error("Supabase client not available in loadStocks");
+            setError("Configuration error. Please check settings.");
+            return;
+          }
           try {
             console.log('User confirmed import, starting...');
             setIsLoading(true);
             
-            const result = await bulkImportStocks(importData);
+            const result = await bulkImportStocks(supabaseClient, importData);
             console.log('Import completed:', result);
 
             if (result && result.length > 0) {
-              await loadStocks();
+              await loadStocks(false);
               setPopupMessage(`Imported ${result.length} stocks successfully!`);
               setIsPopupVisible(true);
               setTimeout(() => setIsPopupVisible(false), 3000);
@@ -1403,7 +1563,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   menuButton: {
-    width: 30,
+    padding: 5, // Add padding for easier tap
+    width: 40, // Ensure enough tap area
+    alignItems: 'center', 
   },
   menuIcon: {
     color: 'white',
@@ -1418,12 +1580,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   menuPlaceholder: {
-    width: 30,
+    width: 40,
   },
   tabContainer: {
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    backgroundColor: 'white', // Add background
   },
   tab: {
     flex: 1,
@@ -1431,7 +1594,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   activeTab: {
-    borderBottomWidth: 2,
+    borderBottomWidth: 3,
     borderBottomColor: '#0066cc',
   },
   tabText: {
@@ -1508,6 +1671,7 @@ const styles = StyleSheet.create({
   },
   stockListContainer: {
     flex: 1,
+    backgroundColor: '#f5f5f5', // Match container background
   },
   accountDetailContainer: {
     flex: 1,
@@ -1615,10 +1779,16 @@ const styles = StyleSheet.create({
   accountInfo: {
     marginTop: 5,
   },
-  errorText: {
+  errorText: { // Re-used style
     color: 'red',
     padding: 10,
     textAlign: 'center',
+    backgroundColor: '#ffebee', // Light red background for errors
+    marginHorizontal: 10,
+    marginTop: 5,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#ffcdd2',
   },
   sectionHeader: {
     paddingHorizontal: 15,
@@ -1930,8 +2100,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   stockCardTitleContainer: {
-    flexDirection: 'column',
-    alignItems: 'flex-start',
+    flex: 1, // Allow ticker to take space
+    marginRight: 8,
   },
   stockCardTicker: {
     fontSize: 16,
@@ -1986,7 +2156,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   stockCardPnLBar: {
-    height: 6,
+    height: 4,
     borderRadius: 3,
     marginTop: 8,
     alignSelf: 'flex-start',
@@ -2000,8 +2170,9 @@ const styles = StyleSheet.create({
   modernSummaryContainer: {
     backgroundColor: 'white',
     margin: 10,
-    marginBottom: 0,
-    borderRadius: 5,
+    marginTop: 10, // Add top margin
+    marginBottom: 2,
+    borderRadius: 8,
     overflow: 'hidden',
     elevation: 2,
     shadowColor: '#000',
@@ -2086,6 +2257,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginTop: 4,
     alignSelf: 'flex-start',
+    overflow: 'hidden', // Ensure text stays within bounds
   },
   summaryPnLBarContainer: {
     marginTop: 10,
@@ -2161,26 +2333,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 10,
-    marginVertical: 10,
+    paddingVertical: 8, // Reduced vertical padding
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
   },
   searchInputWrapper: {
     flex: 1, // Make the search input take more space
     marginRight: 10, // Add some space between search and sort
+    position: 'relative', // Needed for clear button positioning
   },
   searchInput: {
-    height: 50, // Increase height for better visibility
+    height: 40, // Increase height for better visibility
     borderColor: '#ddd',
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 10,
+    paddingRight: 30, // Space for clear button
     backgroundColor: 'white',
   },
   sortByContainer: {
-    width: 135, // Set a fixed width for the dropdown
-    borderWidth: 0,
+    minWidth: 120, // Ensure enough width
+    height: 40, // Match search input height
+    borderWidth: 1,
+    borderColor: '#ddd',
     borderRadius: 8,
-    //paddingHorizontal: 10,
-    backgroundColor: 'white' // Remove border
+    backgroundColor: 'white',
+    justifyContent: 'center', // Center picker vertically
   },
   picker: {
     height: 50,
@@ -2199,13 +2377,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 2000, // Ensure it's above other elements
   },
+  lastRefreshedContainer: {
+    paddingHorizontal: 15,
+    paddingBottom: 8,
+    paddingTop: 0,
+    alignItems: 'center',
+    
+  },
+  lastRefreshedText: {
+    fontSize: 10,
+    color: '#666', // <-- Lighter grey color
+    fontStyle: 'italic',
+  },
 });
 
 // Helper function to get stock by ticker and account
 const getStockByTickerAndAccount = async (ticker, account) => {
   // Implement the logic to fetch the stock from the database
   // This could be a call to your stocksService to get the stock by ticker and account
-  return await fetchStockByTickerAndAccount(ticker, account);
+  return await fetchStockByTickerAndAccount(supabaseClient, ticker, account);
 };
-
-

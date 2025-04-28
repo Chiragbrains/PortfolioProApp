@@ -1,8 +1,10 @@
-import { supabase } from './supabaseClient';
+//import { supabase } from './supabaseClient';
+
 
 // Fetch all stocks
-export const fetchStocks = async () => {
-  const { data, error } = await supabase
+export const fetchStocks = async (supabaseClient) => {
+  if (!supabaseClient) throw new Error("Supabase client is required.");
+  const { data, error } = await supabaseClient
     .from('stocks')
     .select('*')
     .order('account', { ascending: true });
@@ -23,14 +25,15 @@ export const fetchStocks = async () => {
 };
 
 // Add a new stock
-export const addStock = async (stockData) => {
+export const addStock = async (supabaseClient, stockData) => {
+  if (!supabaseClient) throw new Error("Supabase client is required.");
   console.error('Adding New stock:', stockData);
   try {
     const ticker = typeof stockData.ticker === 'string' ? stockData.ticker.trim() : stockData.ticker;
     const account = typeof stockData.account === 'string' ? stockData.account.trim() : stockData.account;
     const type = typeof stockData.type === 'string' ? stockData.type.toLowerCase().trim() : stockData.type.toLowerCase();
     
-    const { data: newStock, error: insertError } = await supabase
+    const { data: newStock, error: insertError } = await supabaseClient
       .from('stocks')
       .insert([{
         ticker: ticker,
@@ -44,7 +47,7 @@ export const addStock = async (stockData) => {
     
     if (insertError) throw insertError;
     
-    const { data: duplicates, error: fetchError } = await supabase
+    const { data: duplicates, error: fetchError } = await supabaseClient
       .from('stocks')
       .select('*')
       .eq('ticker', ticker)
@@ -68,7 +71,7 @@ export const addStock = async (stockData) => {
         oldest.id < current.id ? oldest : current
       );
       
-      const { data: updatedStock, error: updateError } = await supabase
+      const { data: updatedStock, error: updateError } = await supabaseClient
         .from('stocks')
         .update({
           quantity: totalQuantity,
@@ -84,7 +87,7 @@ export const addStock = async (stockData) => {
         .map(stock => stock.id);
       
       if (recordsToDelete.length > 0) {
-        const { error: deleteError } = await supabase
+        const { error: deleteError } = await supabaseClient
           .from('stocks')
           .delete()
           .in('id', recordsToDelete);
@@ -104,7 +107,8 @@ export const addStock = async (stockData) => {
 };
 
 // Update a stock
-export const updateStock = async (stockId, stockData) => {
+export const updateStock = async (SupabaseClient, stockId, stockData) => {
+  if (!supabaseClient) throw new Error("Supabase client is required.");
   try {
     const id = parseInt(stockId, 10);
     
@@ -119,7 +123,7 @@ export const updateStock = async (stockId, stockData) => {
     // Ensure costBasis is defined, or set it to a default value
     const costBasis = stockData.costBasis !== undefined ? stockData.costBasis : 0; // Set to 0 or handle as needed
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('stocks')
       .update({
         ticker: ticker,
@@ -140,8 +144,8 @@ export const updateStock = async (stockId, stockData) => {
 };
 
 // Delete a stock
-export const deleteStock = async (stockId) => {
-  const { data, error } = await supabase
+export const deleteStock = async (supabaseClient, stockId) => {
+  const { data, error } = await supabaseClient
     .from('stocks')
     .delete()
     .eq('id', stockId);
@@ -151,7 +155,7 @@ export const deleteStock = async (stockId) => {
 };
 
 // Bulk import stocks
-export const bulkImportStocks = async (stocks) => {
+export const bulkImportStocks = async (supabaseClient, stocks) => {
   try {
     console.log('Starting bulk import with stocks:', stocks.length);
 
@@ -160,7 +164,7 @@ export const bulkImportStocks = async (stocks) => {
       throw new Error('Invalid input: empty or invalid stocks array');
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('stocks')
       .upsert(stocks, {
         onConflict: 'ticker,account',
@@ -179,7 +183,7 @@ export const bulkImportStocks = async (stocks) => {
     // Even if no error, check if we got data back
     if (!data || data.length === 0) {
       // Data was imported but not returned, fetch the latest records
-      const { data: latestData, error: fetchError } = await supabase
+      const { data: latestData, error: fetchError } = await supabaseClient
         .from('stocks')
         .select('*')
         .in('ticker', stocks.map(s => s.ticker))
@@ -203,10 +207,11 @@ export const bulkImportStocks = async (stocks) => {
 };
 
 // Truncate the stocks table
-export const truncateStocks = async () => {
+export const truncateStocks = async (supabaseClient) => {
+  if (!supabaseClient) throw new Error("Supabase client is required.");
   console.log("Truncating stocks table...");
   try {
-    const { data, error } = await supabase.rpc("truncate_stocks");
+    const { data, error } = await supabaseClient.rpc("truncate_stocks");
     if (error) {
       console.error("Error truncating stocks:", error);
       throw error;
@@ -270,9 +275,10 @@ export const truncateStocks = async () => {
 // };
 
 // Function to fetch stock by ticker and account
-export const fetchStockByTickerAndAccount = async (ticker, account) => {
+export const fetchStockByTickerAndAccount = async (supabaseClient, ticker, account) => {
+  if (!supabaseClient) throw new Error("Supabase client is required.");
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('stocks') // Specify the table name
       .select('*') // Select all columns
       .eq('ticker', ticker) // Filter by ticker
@@ -296,7 +302,8 @@ export const fetchStockByTickerAndAccount = async (ticker, account) => {
  * @param {number} limit - Optional limit for the number of days to fetch.
  * @returns {Promise<Array<{date: string, total_value: number, total_cost_basis: number, total_pnl: number}>>} - Array of history points.
  */
-export const fetchPortfolioHistory = async (days = 90) => {
+export const fetchPortfolioHistory = async (supabaseClient, days = 90) => {
+  if (!supabaseClient) throw new Error("Supabase client is required.");
   console.log(`Fetching portfolio history for the last ${days} days.`); // Log the requested duration
 
   try {
@@ -309,9 +316,9 @@ export const fetchPortfolioHistory = async (days = 90) => {
     const startDateString = startDate.toISOString().split('T')[0];
     console.log(`Fetching data from date: ${startDateString}`); // Log the calculated start date
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('portfolio_history')
-      .select('date, total_value, total_cost_basis, total_pnl, cash_value') // Ensure these columns exist
+      .select('date, total_value, total_cost_basis, total_pnl, cash_value, created_at') // Ensure these columns exist
       .gte('date', startDateString) // Filter records greater than or equal to the start date
       .order('date', { ascending: true }); // Fetch in ascending order directly
 
@@ -338,11 +345,12 @@ export const fetchPortfolioHistory = async (days = 90) => {
  * Checks the latest portfolio history timestamp and invokes the Edge Function
  * to refresh price data if the history is older than 2 hours.
  */
-export const refreshPortfolioDataIfNeeded = async () => {
+export const refreshPortfolioDataIfNeeded = async (supabaseClient) => {
+  if (!supabaseClient) throw new Error("Supabase client is required.");
   console.log('Checking if portfolio data refresh is needed...');
   try {
     // 1. Get the latest timestamp from portfolio_history
-    const { data: historyData, error: historyError } = await supabase
+    const { data: historyData, error: historyError } = await supabaseClient
       .from('portfolio_history')
       .select('created_at')
       .order('created_at', { ascending: false })
@@ -375,7 +383,7 @@ export const refreshPortfolioDataIfNeeded = async () => {
     // 2. Invoke Edge Function if needed
     if (needsRefresh) {
       // IMPORTANT: Replace with your actual Edge Function invocation details
-      const { data: functionData, error: functionError } = await supabase.functions.invoke('dynamic-service', {
+      const { data: functionData, error: functionError } = await supabaseClient.functions.invoke('dynamic-service', {
           // body: JSON.stringify({ /* any payload your function needs */ }), // Add body if required
           // headers: { 'Content-Type': 'application/json' } // Add headers if required
       });
@@ -404,10 +412,11 @@ export const refreshPortfolioDataIfNeeded = async () => {
  * Fetches all current stock prices from the stock_cache table.
  * @returns {Promise<Map<string, number>>} A Map where keys are tickers and values are prices.
  */
-export const fetchAllCachedStockData = async () => {
+export const fetchAllCachedStockData = async (supabaseClient) => {
+  if (!supabaseClient) throw new Error("Supabase client is required.");
   console.log('Fetching all cached stock data...');
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('stock_cache')
       .select('ticker, current_price'); // Select only needed columns
 

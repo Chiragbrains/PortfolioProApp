@@ -18,6 +18,8 @@ import {
   GestureDetector,
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
+import { useSupabaseConfig } from './SupabaseConfigContext'; // Import hook
+
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -38,9 +40,11 @@ const PortfolioGraph = () => {
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [chartWidth, setChartWidth] = useState(screenWidth);
   const fadeAnim = useRef(new Animated.Value(0)).current;
-
   const [showIndicator, setShowIndicator] = useState(true); // CHANGED: Set default to true to show the indicator
   const [indicatorX, setIndicatorX] = useState(0);
+
+  const { supabaseClient } = useSupabaseConfig(); // Get client
+
 
   const getChartLayout = useCallback(() => {
     const containerPaddingHorizontal = 0;
@@ -119,9 +123,15 @@ const PortfolioGraph = () => {
     // Reset data *before* fetching new data to ensure UI updates
     setHistoryData(null);
     setSelectedPoint(null);
+  
+    if (!supabaseClient) { // Guard
+      setError("Supabase connection not configured.");
+      setIsLoading(false);
+      return;
+  }
 
     try {
-      const data = await fetchPortfolioHistory(days);
+      const data = await fetchPortfolioHistory(supabaseClient, days);
       console.log(`Fetched data for ${days} days:`, data ? data.length : 0, "items"); // Log: Check fetched data
 
       if (data && data.length > 0) {
@@ -188,12 +198,13 @@ const PortfolioGraph = () => {
     }
     // Removed fetchPortfolioHistory from dependency array assuming it's a stable import
     // If fetchPortfolioHistory itself depends on component props/state, add it back.
-  }, [getChartLayout]); // Added getChartLayout to dependencies
+  }, [supabaseClient, getChartLayout]); // Added getChartLayout to dependencies
 
   useEffect(() => {
-    // This effect runs when timeRange changes or loadHistory changes (due to useCallback)
-    loadHistory(timeRange);
-  }, [timeRange, loadHistory]); // Correct dependencies
+    if (supabaseClient) {
+      loadHistory(timeRange);
+  }
+}, [timeRange, loadHistory, supabaseClient]); // Add supabaseClient dependency
 
   useEffect(() => {
     if (selectedPoint) {

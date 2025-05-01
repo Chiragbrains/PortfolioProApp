@@ -10,9 +10,12 @@ import {
   Alert
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import { fetchStocks } from './stocksService';
+import { fetchInvestmentAccounts } from './stocksService';
+import { useSupabaseConfig } from './SupabaseConfigContext';
+
 
 const AddStockForm = ({ visible, onClose, onSubmit, initialValues = null, isEditing = false }) => {
+  const { supabaseClient } = useSupabaseConfig();
   const [stockData, setStockData] = useState({
     ticker: '',
     account: '',
@@ -52,7 +55,7 @@ const AddStockForm = ({ visible, onClose, onSubmit, initialValues = null, isEdit
   const loadUniqueAccounts = async () => {
     try {
       // Fetch all stocks
-      const stocks = await fetchStocks();
+      const stocks = await fetchInvestmentAccounts(supabaseClient);
       
       // Extract unique account names
       const uniqueAccounts = [...new Set(stocks.map(stock => stock.account))];

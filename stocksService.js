@@ -1,444 +1,397 @@
-//import { supabase } from './supabaseClient';
+// /Users/chirag/Downloads/Test App - Coding/StockPortfolioApp/stocksService.js
+// Updated to use investment_accounts and portfolio_summary tables
 
-
-// Fetch all stocks
-export const fetchStocks = async (supabaseClient) => {
+/**
+ * Fetches the latest portfolio summary data.
+ * @param {SupabaseClient} supabaseClient
+ * @returns {Promise<Array>} Array of summary objects from portfolio_summary.
+ */
+export const fetchPortfolioSummary = async (supabaseClient) => {
   if (!supabaseClient) throw new Error("Supabase client is required.");
+  console.log("Fetching portfolio summary...");
   const { data, error } = await supabaseClient
-    .from('stocks')
+    .from('portfolio_summary') // Query the summary table
     .select('*')
-    .order('account', { ascending: true });
-  
+    .order('ticker', { ascending: true }); // Or order by market_value, etc.
+
   if (error) {
-    console.error('Error fetching stocks:', error);
+    console.error('Error fetching portfolio summary:', error);
     throw error;
   }
-  
-  if (data) {
-    return data.map(stock => ({
-      ...stock,
-      costBasis: stock.cost_basis,
-    }));
-  }
-  
-  return data;
+  console.log(`Fetched ${data?.length ?? 0} summary rows.`);
+  // No need to map cost_basis, summary table has average_cost_basis etc.
+  return data || [];
 };
 
-// Add a new stock
-export const addStock = async (supabaseClient, stockData) => {
-  if (!supabaseClient) throw new Error("Supabase client is required.");
-  console.error('Adding New stock:', stockData);
-  try {
-    const ticker = typeof stockData.ticker === 'string' ? stockData.ticker.trim() : stockData.ticker;
-    const account = typeof stockData.account === 'string' ? stockData.account.trim() : stockData.account;
-    const type = typeof stockData.type === 'string' ? stockData.type.toLowerCase().trim() : stockData.type.toLowerCase();
-    
-    const { data: newStock, error: insertError } = await supabaseClient
-      .from('stocks')
-      .insert([{
-        ticker: ticker,
-        account: account,
-        quantity: stockData.quantity,
-        cost_basis: stockData.costBasis,
-        type: type,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }]);
-    
-    if (insertError) throw insertError;
-    
-    const { data: duplicates, error: fetchError } = await supabaseClient
-      .from('stocks')
+/**
+ * Fetches all individual investment account transactions.
+ * @param {SupabaseClient} supabaseClient
+ * @returns {Promise<Array>} Array of transaction objects from investment_accounts.
+ */
+export const fetchInvestmentAccounts = async (supabaseClient) => {
+    if (!supabaseClient) throw new Error("Supabase client is required.");
+    console.log("Fetching all investment account transactions...");
+    const { data, error } = await supabaseClient
+      .from('investment_accounts') // Query the transactions table
       .select('*')
-      .eq('ticker', ticker)
-      .eq('account', account);
-    
-    if (fetchError) throw fetchError;
-    
-    if (duplicates && duplicates.length > 1) {
-      console.log(`Found ${duplicates.length} records for ${ticker} in account ${account}. Consolidating...`);
-      
-      let totalQuantity = 0;
-      let totalValue = 0;
-      
-      duplicates.forEach(stock => {
-        totalQuantity += parseFloat(stock.quantity);
-        totalValue += parseFloat(stock.quantity) * parseFloat(stock.cost_basis);
-      });
-      
-      const weightedCostBasis = totalValue / totalQuantity;
-      const oldestRecord = duplicates.reduce((oldest, current) => 
-        oldest.id < current.id ? oldest : current
-      );
-      
-      const { data: updatedStock, error: updateError } = await supabaseClient
-        .from('stocks')
-        .update({
-          quantity: totalQuantity,
-          cost_basis: weightedCostBasis,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', oldestRecord.id);
-      
-      if (updateError) throw updateError;
-      
-      const recordsToDelete = duplicates
-        .filter(stock => stock.id !== oldestRecord.id)
-        .map(stock => stock.id);
-      
-      if (recordsToDelete.length > 0) {
-        const { error: deleteError } = await supabaseClient
-          .from('stocks')
-          .delete()
-          .in('id', recordsToDelete);
-        
-        if (deleteError) throw deleteError;
-      }
-      
-      console.log(`Consolidated ${duplicates.length} records into one. New quantity: ${totalQuantity}, New cost basis: ${weightedCostBasis}`);
-      return updatedStock;
-    }
-    
-    return newStock;
-  } catch (error) {
-    console.error('Error adding stock:', error);
-    throw error;
-  }
-};
-
-// Update a stock
-export const updateStock = async (SupabaseClient, stockId, stockData) => {
-  if (!supabaseClient) throw new Error("Supabase client is required.");
-  try {
-    const id = parseInt(stockId, 10);
-    
-    if (isNaN(id)) {
-      throw new Error('Invalid stock ID: must be a valid integer');
-    }
-    
-    const ticker = typeof stockData.ticker === 'string' ? stockData.ticker.trim() : stockData.ticker;
-    const account = typeof stockData.account === 'string' ? stockData.account.trim() : stockData.account;
-    const type = typeof stockData.type === 'string' ? stockData.type.toLowerCase().trim() : null;
-
-    // Ensure costBasis is defined, or set it to a default value
-    const costBasis = stockData.costBasis !== undefined ? stockData.costBasis : 0; // Set to 0 or handle as needed
-
-    const { data, error } = await supabaseClient
-      .from('stocks')
-      .update({
-        ticker: ticker,
-        account: account,
-        quantity: stockData.quantity,
-        cost_basis: costBasis, // Use the defined costBasis
-        type: type,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', id);
-    
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error updating stock:', error);
-    throw error;
-  }
-};
-
-// Delete a stock
-export const deleteStock = async (supabaseClient, stockId) => {
-  const { data, error } = await supabaseClient
-    .from('stocks')
-    .delete()
-    .eq('id', stockId);
-  
-  if (error) throw error;
-  return data;
-};
-
-// Bulk import stocks
-export const bulkImportStocks = async (supabaseClient, stocks) => {
-  try {
-    console.log('Starting bulk import with stocks:', stocks.length);
-
-    // First validate the input
-    if (!stocks || !Array.isArray(stocks) || stocks.length === 0) {
-      throw new Error('Invalid input: empty or invalid stocks array');
-    }
-
-    const { data, error } = await supabaseClient
-      .from('stocks')
-      .upsert(stocks, {
-        onConflict: 'ticker,account',
-        returning: 'representation', // Changed from 'true' to 'representation'
-        ignoreDuplicates: false     // Will update existing records
-      });
+      .order('created_at', { ascending: true }); // Order by creation time or ticker/account
 
     if (error) {
-      console.error('Bulk import error:', error);
-      throw new Error('Failed to import stocks: ' + error.message);
-    }
-
-    // Log the response for debugging
-    console.log('Upsert response:', { data, error });
-
-    // Even if no error, check if we got data back
-    if (!data || data.length === 0) {
-      // Data was imported but not returned, fetch the latest records
-      const { data: latestData, error: fetchError } = await supabaseClient
-        .from('stocks')
-        .select('*')
-        .in('ticker', stocks.map(s => s.ticker))
-        .in('account', stocks.map(s => s.account));
-
-      if (fetchError) {
-        console.error('Error fetching updated records:', fetchError);
-        throw new Error('Failed to verify imported stocks');
-      }
-
-      console.log('Successfully imported and fetched stocks:', latestData?.length || 0);
-      return latestData;
-    }
-
-    console.log('Successfully imported stocks:', data.length);
-    return data;
-  } catch (error) {
-    console.error('Unexpected error in bulkImportStocks:', error);
-    throw error;
-  }
-};
-
-// Truncate the stocks table
-export const truncateStocks = async (supabaseClient) => {
-  if (!supabaseClient) throw new Error("Supabase client is required.");
-  console.log("Truncating stocks table...");
-  try {
-    const { data, error } = await supabaseClient.rpc("truncate_stocks");
-    if (error) {
-      console.error("Error truncating stocks:", error);
+      console.error('Error fetching investment accounts:', error);
       throw error;
     }
-    console.log("Stocks table truncated successfully.");
+    console.log(`Fetched ${data?.length ?? 0} investment account rows.`);
+    // Map cost_basis for frontend consistency if AddStockForm expects it
+    // Or adjust AddStockForm to use cost_basis directly
+    return data ? data.map(tx => ({ ...tx, costBasis: tx.cost_basis })) : [];
+};
+
+
+/**
+ * Adds a new transaction to the investment_accounts table.
+ * Consolidation is handled separately by the Edge Function.
+ * @param {SupabaseClient} supabaseClient
+ * @param {object} transactionData - { ticker, account, quantity, cost_basis, type? }
+ * @returns {Promise<object|null>} The inserted transaction object.
+ */
+export const addInvestmentAccount = async (supabaseClient, transactionData) => {
+  if (!supabaseClient) throw new Error("Supabase client is required.");
+  console.log('Adding new investment transaction:', transactionData);
+  try {
+    // Ensure strings are trimmed and ticker is uppercase
+    const ticker = typeof transactionData.ticker === 'string' ? transactionData.ticker.trim().toUpperCase() : transactionData.ticker;
+    const account = typeof transactionData.account === 'string' ? transactionData.account.trim() : transactionData.account;
+    // Type might be optional or derived later by the Edge Function
+    const type = transactionData.type ? (typeof transactionData.type === 'string' ? transactionData.type.toLowerCase().trim() : transactionData.type) : null;
+
+    // Basic validation before insert
+    if (!ticker || !account || transactionData.quantity === undefined || transactionData.cost_basis === undefined) {
+        throw new Error("Missing required fields (ticker, account, quantity, cost_basis).");
+    }
+    const quantity = parseFloat(transactionData.quantity);
+    const cost_basis = parseFloat(transactionData.cost_basis);
+    if (isNaN(quantity) || isNaN(cost_basis)) {
+        throw new Error("Quantity and Cost Basis must be valid numbers.");
+    }
+    // Add check for positive cost basis if quantity is positive (buy)
+    if (quantity > 0 && cost_basis <= 0) {
+        console.warn(`Warning: Adding transaction ${ticker} with positive quantity but zero or negative cost basis (${cost_basis}).`);
+    }
+
+    // Prepare data for insertion
+    const insertPayload = {
+        ticker: ticker,
+        account: account,
+        quantity: quantity,
+        cost_basis: cost_basis, // Use the correct column name
+        // type: type, // Include type if it's a column in investment_accounts
+        
+    };
+
+    // Insert the new transaction record
+    const { data: insertedData, error: insertError } = await supabaseClient
+      .from('investment_accounts') // Target the transaction table
+      .insert([insertPayload])
+      .select() // Select the inserted row(s)
+      .single(); // Expecting one row back
+
+    if (insertError) {
+        console.error('Insert transaction error:', insertError);
+        throw insertError;
+    }
+
+    console.log(`Transaction for ${ticker}/${account} added successfully.`);
+    // Map cost_basis for consistency if needed by frontend
+    return insertedData ? { ...insertedData, costBasis: insertedData.cost_basis } : null;
+
+  } catch (error) {
+    console.error('Error in addInvestmentAccount function:', error);
+    throw error; // Re-throw the error to be handled by the caller
+  }
+};
+
+
+/**
+ * Updates an existing investment transaction by its ID.
+ * @param {SupabaseClient} supabaseClient
+ * @param {number | string} transactionId - The ID of the transaction to update.
+ * @param {object} updateData - Fields to update (e.g., { quantity, cost_basis }).
+ * @returns {Promise<object>} The updated transaction object.
+ */
+export const updateInvestmentAccount = async (supabaseClient, transactionId, updateData) => {
+  console.log("updateInvestmentAccount received updateData:", updateData);
+  if (!supabaseClient) throw new Error("Supabase client is required.");
+  if (!transactionId) throw new Error("Transaction ID is required to update.");
+  console.log(`Updating investment transaction ID ${transactionId} with:`, updateData);
+
+  // Prepare payload - only update specified fields
+  // Ensure cost_basis is used for the DB column
+  const updatePayload = {};
+  if (updateData.quantity !== undefined) updatePayload.quantity = parseFloat(updateData.quantity);
+  if (updateData.cost_basis !== undefined) updatePayload.cost_basis = parseFloat(updateData.cost_basis); // Map from frontend 'cost_basis'
+  // Add other fields like 'type' if they are editable at the transaction level
+
+  // Validate payload
+  if ((updatePayload.quantity !== undefined && isNaN(updatePayload.quantity)) ||
+      (updatePayload.cost_basis !== undefined && isNaN(updatePayload.cost_basis))) {
+      console.error("Invalid payload after parsing:", updatePayload);
+      throw new Error("Quantity and Cost Basis must be valid numbers for update.");
+  }
+  // Check if there's anything actually to update
+  if (Object.keys(updatePayload).length === 0) {
+    console.warn("No valid fields provided to update for transaction ID:", transactionId);
+    // Fetch and return the current data as no update is needed
+    const { data: currentData, error: fetchError } = await supabaseClient.from('investment_accounts').select('*').eq('id', transactionId).maybeSingle();
+    if (fetchError) throw fetchError;
+    return currentData ? { ...currentData, costBasis: currentData.cost_basis } : null;
+}
+
+// Additional business logic validation
+if (updatePayload.quantity !== undefined && updatePayload.quantity > 0 && (updatePayload.cost_basis === undefined || updatePayload.cost_basis <= 0)) {
+    // If quantity is positive, cost basis must also be positive (or already exist and be positive)
+    // This logic might need refinement depending on whether cost_basis is always updated alongside quantity
+    console.warn(`Warning: Updating transaction ID ${transactionId} with positive quantity but potentially invalid cost basis.`);
+}
+
+
+// Perform the update based on ID
+const { data, error } = await supabaseClient
+  .from('investment_accounts')
+  .update(updatePayload) // Payload no longer contains updated_at
+  .eq('id', transactionId)
+  .select()
+  .single();
+
+if (error) {
+  console.error('Error updating transaction:', error.message);
+  throw new Error(`Failed to update transaction: ${error.message}`);
+}
+
+console.log('Transaction updated successfully:', data);
+// Map cost_basis back for consistency if frontend expects costBasis (capital B)
+return data ? { ...data, costBasis: data.cost_basis } : null;
+};
+
+/**
+ * Deletes an investment transaction by its ID.
+ * @param {SupabaseClient} supabaseClient
+ * @param {number | string} transactionId - The ID of the transaction to delete.
+ * @returns {Promise<object>} Result of the delete operation.
+ */
+export const deleteInvestmentAccount = async (supabaseClient, transactionId) => {
+  if (!supabaseClient) throw new Error("Supabase client is required.");
+  if (!transactionId) {
+    throw new Error('Transaction ID is required to delete.');
+  }
+  console.log(`Deleting investment transaction ID: ${transactionId}`);
+
+  const { data, error } = await supabaseClient
+    .from('investment_accounts') // Target the transaction table
+    .delete()
+    .eq('id', transactionId); // Use ID as the key
+
+  if (error) {
+    console.error('Error deleting transaction:', error.message);
+    throw new Error(`Failed to delete transaction: ${error.message}`);
+  }
+
+  console.log('Transaction deleted successfully:', data); // data is often null on successful delete
+  return data;
+};
+
+/**
+ * Bulk imports transactions into the investment_accounts table.
+ * This version simply inserts all provided rows. It does not handle updates or conflicts.
+ * @param {SupabaseClient} supabaseClient
+ * @param {Array<object>} transactions - Array of transaction objects { ticker, account, quantity, cost_basis, type? }.
+ * @returns {Promise<Array>} Array of inserted transaction objects.
+ */
+export const bulkImportInvestmentAccounts = async (supabaseClient, transactions) => {
+  if (!supabaseClient) throw new Error("Supabase client is required.");
+  if (!transactions || !Array.isArray(transactions) || transactions.length === 0) {
+    throw new Error('Invalid input: Transaction data must be a non-empty array.');
+  }
+  console.log(`Starting bulk import for ${transactions.length} transactions...`);
+
+  // Prepare data for insert
+  const preparedTransactions = transactions.map(tx => ({
+      ticker: tx.ticker?.trim().toUpperCase(),
+      account: tx.account?.trim(),
+      quantity: parseFloat(tx.quantity),
+      cost_basis: parseFloat(tx.cost_basis), // Use cost_basis from input
+      // type: tx.type ? tx.type.toLowerCase().trim() : null, // Include type if needed
+      
+  }));
+
+  // Basic validation
+  const invalidEntry = preparedTransactions.find(tx => !tx.ticker || !tx.account || tx.quantity === undefined || tx.cost_basis === undefined || isNaN(tx.quantity) || isNaN(tx.cost_basis));
+  if (invalidEntry) {
+      console.error("Invalid entry found in prepared transactions:", invalidEntry);
+      throw new Error("One or more transaction entries have missing or invalid required fields (ticker, account, quantity, cost_basis).");
+  }
+
+  // Use simple insert for transactions
+  const { data, error } = await supabaseClient
+    .from('investment_accounts') // Target the transaction table
+    .insert(preparedTransactions)
+    .select(); // Select the results
+
+  if (error) {
+    console.error('Bulk import error:', error.message);
+    throw new Error(`Failed to import transactions: ${error.message}`);
+  }
+
+  console.log(`Successfully inserted ${data?.length ?? 0} transactions.`);
+  // Map cost_basis for consistency
+  return data ? data.map(tx => ({ ...tx, costBasis: tx.cost_basis })) : [];
+};
+
+
+/**
+ * Truncates the investment_accounts table using an RPC function.
+ * @param {SupabaseClient} supabaseClient
+ * @returns {Promise<any>} Result of the RPC call.
+ */
+export const truncateInvestmentAccounts = async (supabaseClient) => {
+  if (!supabaseClient) throw new Error("Supabase client is required.");
+  // IMPORTANT: Ensure you have an RPC function named 'truncate_investment_accounts' in Supabase.
+  const rpcName = "truncate_investment_accounts";
+  console.log(`Calling ${rpcName} RPC...`);
+  try {
+    const { data, error } = await supabaseClient.rpc(rpcName);
+    if (error) throw error;
+    console.log("Investment accounts table truncated successfully via RPC.");
     return data;
   } catch (error) {
-    console.error("Error in truncateStocks:", error);
-    throw new Error("Failed to truncate stocks table.");
+    console.error(`Error in ${rpcName}:`, error);
+    throw new Error(`Failed to truncate investment accounts table: ${error.message || error}`);
   }
 };
 
-// // Fetch cached stock data
-// export const getCachedStockData = async (ticker) => {
-//   try {
-//     const { data, error } = await supabase
-//       .from('stock_cache')
-//       .select('*')
-//       .eq('ticker', ticker)
-//       .maybeSingle();  // Changed from .single() to .maybeSingle()
-
-//     if (error) {
-//       console.error(`Error fetching cached data for ${ticker}:`, error.message);
-//       return null;
-//     }
-
-//     return data;  // Will be null if no row was found
-//   } catch (error) {
-//     console.error(`Unexpected error fetching cached data for ${ticker}:`, error.message);
-//     return null;
-//   }
-// };
-
-// Add this helper function at the top of stocksService.js
-// const getESTTimestamp = () => {
-//   return new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
-// };
-
-// export const updateStockCache = async (ticker, currentPrice) => {
-//   try {
-//     const utcTimestamp = new Date().toISOString(); // Get the current time in UTC ISO format
-
-//     const { data, error } = await supabase
-//       .from('stock_cache')
-//       .upsert({
-//         ticker,
-//         current_price: currentPrice,
-//         last_refreshed: utcTimestamp, // Save the timestamp in UTC ISO format
-//       });
-
-//     if (error) {
-//       console.error(`Error updating cache for ${ticker}:`, error.message);
-//       return null;
-//     }
-
-//     return data;
-//   } catch (error) {
-//     console.error(`Unexpected error updating cache for ${ticker}:`, error.message);
-//     return null;
-//   }
-// };
-
-// Function to fetch stock by ticker and account
-export const fetchStockByTickerAndAccount = async (supabaseClient, ticker, account) => {
-  if (!supabaseClient) throw new Error("Supabase client is required.");
-  try {
-    const { data, error } = await supabaseClient
-      .from('stocks') // Specify the table name
-      .select('*') // Select all columns
-      .eq('ticker', ticker) // Filter by ticker
-      .eq('account', account) // Filter by account
-      .single(); // Use .single() to get a single record
-
-    if (error) {
-      console.error('Error fetching stock:', error);
-      return null; // Return null if there's an error
-    }
-
-    return data; // Return the fetched stock data
-  } catch (error) {
-    console.error('Error fetching stock:', error);
-    return null; // Return null if there's an unexpected error
-  }
-};
+// --- Functions below remain largely the same as they interact with history or trigger the Edge Function ---
 
 /**
- * Fetches historical portfolio value, cost, and P&L data.
- * @param {number} limit - Optional limit for the number of days to fetch.
- * @returns {Promise<Array<{date: string, total_value: number, total_cost_basis: number, total_pnl: number}>>} - Array of history points.
+ * Fetches historical portfolio data.
+ * @param {SupabaseClient} supabaseClient
+ * @param {number} [days=90]
+ * @returns {Promise<Array>}
  */
 export const fetchPortfolioHistory = async (supabaseClient, days = 90) => {
-  if (!supabaseClient) throw new Error("Supabase client is required.");
-  console.log(`Fetching portfolio history for the last ${days} days.`); // Log the requested duration
-
-  try {
-    // Calculate the start date
-    const today = new Date();
-    const startDate = new Date(today);
-    startDate.setDate(today.getDate() - days);
-
-    // Format the start date as YYYY-MM-DD for Supabase query
-    const startDateString = startDate.toISOString().split('T')[0];
-    console.log(`Fetching data from date: ${startDateString}`); // Log the calculated start date
-
-    const { data, error } = await supabaseClient
-      .from('portfolio_history')
-      .select('date, total_value, total_cost_basis, total_pnl, cash_value, created_at') // Ensure these columns exist
-      .gte('date', startDateString) // Filter records greater than or equal to the start date
-      .order('date', { ascending: true }); // Fetch in ascending order directly
-
-    // Log the raw response for debugging
-    // console.log('Raw response from Supabase:', { data, rowCount: data?.length });
-
-    if (error) {
-      console.error('Error fetching portfolio history:', error);
-      // Consider more specific error handling if needed
-      throw new Error(`Failed to fetch portfolio history: ${error.message}`);
-    }
-
-    // Data is already sorted ascending by the query
-    return data || []; // Return the data or an empty array if null/undefined
-
-  } catch (error) {
-    // Catch any unexpected errors during date calculation or re-throw Supabase errors
-    console.error('Unexpected error fetching portfolio history:', error);
-    throw error; // Re-throw for handling in the component
-  }
+    if (!supabaseClient) throw new Error("Supabase client is required.");
+    console.log(`Fetching portfolio history for the last ${days} days.`);
+    try {
+        const today = new Date();
+        const startDate = new Date(today);
+        startDate.setDate(today.getDate() - days);
+        const startDateString = startDate.toISOString().split('T')[0];
+        const { data, error } = await supabaseClient
+        .from('portfolio_history') // Correct table
+        .select('date, total_value, total_cost_basis, total_pnl, cash_value, created_at')
+        .gte('date', startDateString)
+        .order('date', { ascending: true });
+        if (error) throw new Error(`Failed to fetch portfolio history: ${error.message}`);
+        return data || [];
+    } catch (error) { throw error; }
 };
 
 /**
- * Checks the latest portfolio history timestamp and invokes the Edge Function
- * to refresh price data if the history is older than 2 hours.
+ * Checks history and invokes the 'portfolio-processor' Edge Function if needed,
+ * or if forceRefresh is true.
+ * The Edge Function is responsible for reading investment_accounts and updating portfolio_summary/portfolio_history.
+ * If the Edge Function is invoked, this function WAITS for it to complete.
+ * @param {SupabaseClient} supabaseClient
+ * @param {boolean} [forceRefresh=false] - If true, bypasses the time check and always invokes the Edge Function.
+ * @returns {Promise<boolean>}
  */
-export const refreshPortfolioDataIfNeeded = async (supabaseClient) => {
+export const refreshPortfolioDataIfNeeded = async (supabaseClient, forceRefresh = false) => { // Added forceRefresh parameter
   if (!supabaseClient) throw new Error("Supabase client is required.");
-  console.log('Checking if portfolio data refresh is needed...');
+  console.log(`Checking if portfolio data refresh is needed... (forceRefresh: ${forceRefresh})`); // Log forceRefresh status
   try {
-    // 1. Get the latest timestamp from portfolio_history
-    const { data: historyData, error: historyError } = await supabaseClient
-      .from('portfolio_history')
-      .select('created_at')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(); // Use maybeSingle in case the table is empty
+      let needsRefresh = false;
 
-    if (historyError && historyError.code !== 'PGRST116') { // Ignore "No rows found"
-      console.error(`Error fetching latest portfolio history timestamp: ${historyError.message}`);
-      throw new Error('Failed to check portfolio history timestamp.');
-    }
-
-    let needsRefresh = true; // Default to refresh if no history exists
-    if (historyData?.created_at) {
-      const lastCreatedAt = new Date(historyData.created_at);
-      const now = new Date();
-      const hoursSinceLastRefresh = (now.getTime() - lastCreatedAt.getTime()) / (1000 * 60 * 60);
-
-      console.log(`Last portfolio history entry: ${lastCreatedAt.toISOString()}, Hours since: ${hoursSinceLastRefresh.toFixed(2)}`);
-
-      if (hoursSinceLastRefresh < 2) {
-        needsRefresh = false;
-        console.log('Portfolio data is recent (< 2 hours). Skipping Edge Function call.');
+      if (forceRefresh) {
+          console.log("Forcing refresh due to explicit request.");
+          needsRefresh = true;
       } else {
-        console.log('Portfolio data is older than 2 hours. Triggering Edge Function.');
+          // Check the timestamp of the last history entry ONLY if not forcing refresh
+          const { data: historyData, error: historyError } = await supabaseClient
+              .from('portfolio_history')
+              .select('created_at')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+          if (historyError && historyError.code !== 'PGRST116') { // Ignore "No rows found"
+              throw new Error(`Failed to check history timestamp: ${historyError.message}`);
+          }
+
+          const refreshIntervalHours = 2; // Or your desired interval
+
+          if (!historyData?.created_at) {
+              // If no history exists, definitely needs a refresh
+              needsRefresh = true;
+              console.log("No history found, refresh needed.");
+          } else {
+              const hoursSinceLastRefresh = (new Date().getTime() - new Date(historyData.created_at).getTime()) / (1000 * 60 * 60);
+              if (hoursSinceLastRefresh >= refreshIntervalHours) {
+                  needsRefresh = true;
+                  console.log(`Last refresh was ${hoursSinceLastRefresh.toFixed(2)} hours ago, refresh needed.`);
+              }
+          }
+      } // End of else block (checking time)
+
+
+      if (needsRefresh) {
+          console.log(`Triggering Edge Function: portfolio-processor and waiting for completion...`);
+          const { error: functionError } = await supabaseClient.functions.invoke('portfolio-processor');
+
+          if (functionError) {
+              console.error("Edge Function invocation failed:", functionError);
+              throw new Error(`Edge Function failed: ${functionError.message || 'Unknown error'}`);
+          }
+          console.log('Edge Function (portfolio-processor) invoked and completed successfully.');
+      } else {
+          console.log(`Summary/History data is recent or refresh not forced. Skipping Edge Function call.`);
       }
-    } else {
-        console.log('No portfolio history found. Triggering Edge Function.');
-    }
-
-    // 2. Invoke Edge Function if needed
-    if (needsRefresh) {
-      // IMPORTANT: Replace with your actual Edge Function invocation details
-      const { data: functionData, error: functionError } = await supabaseClient.functions.invoke('dynamic-service', {
-          // body: JSON.stringify({ /* any payload your function needs */ }), // Add body if required
-          // headers: { 'Content-Type': 'application/json' } // Add headers if required
-      });
-
-      if (functionError) {
-        console.error('Error invoking Supabase Edge Function (dynamic-service):', functionError);
-        // Decide if you want to throw an error or try to proceed with potentially stale cache
-        throw new Error(`Failed to refresh portfolio data via Edge Function: ${functionError.message}`);
-      }
-
-      console.log('Supabase Edge Function (dynamic-service) invoked successfully.', functionData);
-      // Optional: Add a small delay to allow DB updates to propagate if needed, though usually not necessary
-      // await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
-    return true; // Indicate success (or that refresh wasn't needed)
-
+      return true; // Indicate check/refresh attempt was performed successfully
   } catch (error) {
-    console.error('Error in refreshPortfolioDataIfNeeded:', error);
-    // Re-throw the error so the calling function (in App.js) knows something went wrong
-    throw error;
+      console.error('Error in refreshPortfolioDataIfNeeded:', error);
+      throw error; // Re-throw the error
   }
 };
 
 /**
- * Fetches all current stock prices from the stock_cache table.
- * @returns {Promise<Map<string, number>>} A Map where keys are tickers and values are prices.
+ * Fetches investment transactions matching a specific ticker and account.
+ * @param {SupabaseClient} supabaseClient
+ * @param {string} ticker
+ * @param {string} account
+ * @returns {Promise<Array|null>} An array of matching transaction objects, or null on error.
  */
-export const fetchAllCachedStockData = async (supabaseClient) => {
-  if (!supabaseClient) throw new Error("Supabase client is required.");
-  console.log('Fetching all cached stock data...');
-  try {
-    const { data, error } = await supabaseClient
-      .from('stock_cache')
-      .select('ticker, current_price'); // Select only needed columns
+export const fetchInvestmentAccountsByTickerAndAccount = async (supabaseClient, ticker, account) => {
+    if (!supabaseClient) throw new Error("Supabase client is required.");
+    try {
+        const upperTicker = ticker?.trim().toUpperCase();
+        const trimAccount = account?.trim();
+        if (!upperTicker || !trimAccount) {
+            throw new Error("Ticker and Account are required.");
+        }
 
-    if (error) {
-      console.error(`Error fetching all cached data:`, error.message);
-      throw error; // Throw error to be caught by the caller
+        const { data, error } = await supabaseClient
+        .from('investment_accounts') // Query the transaction table
+        .select('*')
+        .eq('ticker', upperTicker)
+        .eq('account', trimAccount)
+        .order('created_at', { ascending: true }); // Order transactions by date
+
+        if (error) throw error;
+
+        // Map cost_basis for consistency if needed
+        return data ? data.map(tx => ({ ...tx, costBasis: tx.cost_basis })) : [];
+    } catch (error) {
+        console.error('Error fetching investment accounts by ticker/account:', error);
+        return null; // Return null or empty array on error?
     }
-
-    // Convert the array of {ticker, current_price} into a Map for efficient lookup
-    const priceMap = new Map();
-    if (data) {
-      data.forEach(item => {
-        // Ensure ticker is uppercase for consistent lookup
-        priceMap.set(item.ticker.toUpperCase(), item.current_price);
-      });
-    }
-    console.log(`Fetched ${priceMap.size} prices from cache.`);
-    return priceMap;
-
-  } catch (error) {
-    console.error(`Unexpected error fetching all cached data:`, error.message);
-    throw error; // Re-throw
-  }
 };
 
+// Removed fetchAllCachedStockData as portfolio_summary now holds price/meta.
+// Removed fetchStockByTickerAndAccount (replaced by fetchInvestmentAccountsByTickerAndAccount).

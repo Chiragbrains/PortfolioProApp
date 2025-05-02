@@ -479,24 +479,80 @@ export default function App() {
     // --- File Handling / Import ---
       const handleFileSelect = async (result) => {
         try {
-          setIsLoading(true); setError(null);
+          setError(null);
+          console.log("handleFileSelect received:", result);
+          const fileUri = result.uri;
+          const fileName = result.name;
+
+          if (!fileUri) {
+            throw new Error("No file URI found in result.");
+          }
+
+          // CSV handling
+          if (fileUri.endsWith('.csv') || (result.mimeType && result.mimeType.includes('csv'))) {
+            let csvContent;
+            if (Platform.OS === 'web') {
+              const response = await fetch(fileUri);
+              csvContent = await response.text();
+            } else {
+              csvContent = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.UTF8 });
+            }
+            // Parse CSV to JSON using XLSX
+            const workbook = XLSX.read(csvContent, { type: 'string' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+            await processExcelData(jsonData);
+            return;
+          }
+
+          console.log(`Handling file: ${fileName}, URI: ${fileUri}`);
           if (Platform.OS === 'web') {
-            const file = result.file;
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-              try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-                const sheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[sheetName];
-                const jsonData = XLSX.utils.sheet_to_json(worksheet);
-                await processExcelData(jsonData);
-              } catch (error) { console.error('Error processing Excel:', error); Alert.alert('Error', `Excel processing failed: ${error.message}`); setIsLoading(false); }
-            };
-            reader.onerror = (error) => { console.error('FileReader error:', error); Alert.alert('Error', 'Failed to read file'); setIsLoading(false); };
-            reader.readAsArrayBuffer(file);
+            console.log("Running web file handling logic...");
+            // On web, the URI is often a blob URL. Fetch it.
+            try {
+                console.log("Attempting to fetch data URI...");
+                const response = await fetch(fileUri);
+                console.log(`Fetch response status: ${response.status}, ok: ${response.ok}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch file data: ${response.statusText}`);
+                }
+                console.log("Fetching blob from response...");
+                const blob = await response.blob();
+                console.log(`Blob fetched, size: ${blob.size}, type: ${blob.type}`);
+
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                  console.log("FileReader onload triggered.");
+                  try {
+                    if (!e.target || !e.target.result) {
+                        setIsLoading(false);
+                        throw new Error("FileReader onload event target or result is missing.");
+                    }
+                    console.log("Reading data as Uint8Array...");
+                    const data = new Uint8Array(e.target.result);
+                    console.log(`Data read, length: ${data.length}. Parsing workbook...`);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0];
+                    console.log(`Using sheet: ${sheetName}`);
+                    const worksheet = workbook.Sheets[sheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                    console.log(`Parsed ${jsonData.length} rows. Processing data...`);
+                    await processExcelData(jsonData);
+                    console.log("processExcelData finished.");
+                  } catch (error) { console.error('Error processing Excel (Web onload):', error); Alert.alert('Error', `Excel processing failed: ${error.message}`); setIsLoading(false); }
+                };
+                reader.onerror = (error) => { console.error('FileReader error:', error); Alert.alert('Error', 'Failed to read file'); setIsLoading(false); };
+                console.log("Calling reader.readAsArrayBuffer...");
+                reader.readAsArrayBuffer(blob); // Read the fetched blob
+            } catch (fetchError) {
+                console.error('Error during web file fetch/blob handling:', fetchError);
+                Alert.alert('Error', `Failed to handle file: ${fetchError.message}`);
+                setIsLoading(false); // Ensure loading stops on fetch error
+            }
           } else {
-            const base64Content = await FileSystem.readAsStringAsync(result.uri, { encoding: FileSystem.EncodingType.Base64 });
+            console.log("Running native file handling logic...");
+            const base64Content = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
             const workbook = XLSX.read(base64Content, { type: 'base64' });
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
@@ -508,12 +564,24 @@ export default function App() {
     
       const processExcelData = async (data) => {
         try {
+            console.log("Processing Excel data...");
           if (!data || data.length === 0) throw new Error('No data found in Excel');
           validateData(data);
           const normalizedData = data.map((row, index) => {
             const findColumnValue = (obj, prefixes) => {
-                for (const prefix of prefixes) { const key = Object.keys(obj).find(k => k.toLowerCase().trim() === prefix.toLowerCase()); if (key && obj[key] !== null && obj[key] !== undefined) return obj[key]; }
-                for (const prefix of prefixes) { const key = Object.keys(obj).find(k => k.toLowerCase().trim().includes(prefix.toLowerCase())); if (key && obj[key] !== null && obj[key] !== undefined) { console.warn(`Fallback match for '${prefix}' in row ${index + 1}. Key: '${key}'`); return obj[key]; } }
+                //for (const prefix of prefixes) { const key = Object.keys(obj).find(k => k.toLowerCase().trim() === prefix.toLowerCase()); if (key && obj[key] !== null && obj[key] !== undefined) return obj[key]; }
+                //for (const prefix of prefixes) { const key = Object.keys(obj).find(k => k.toLowerCase().trim().includes(prefix.toLowerCase())); if (key && obj[key] !== null && obj[key] !== undefined) { console.warn(`Fallback match for '${prefix}' in row ${index + 1}. Key: '${key}'`); return obj[key]; } }
+                const rowKeys = Object.keys(obj);
+                // 1. Exact match (case-insensitive, trimmed)
+                for (const prefix of prefixes) {
+                    const key = rowKeys.find(k => k.toLowerCase().trim() === prefix.toLowerCase());
+                    if (key && obj[key] !== null && obj[key] !== undefined) {
+                        // console.log(`Row ${index + 1}: Exact match found for '${prefix}' -> Key: '${key}', Value: '${obj[key]}'`);
+                        return obj[key];
+                    }
+                }
+                // 2. Fallback: Includes match (case-insensitive, trimmed) - Use with caution
+                // for (const prefix of prefixes) { const key = rowKeys.find(k => k.toLowerCase().trim().includes(prefix.toLowerCase())); if (key && obj[key] !== null && obj[key] !== undefined) { console.warn(`Row ${index + 1}: Fallback match for '${prefix}'. Key: '${key}', Value: '${obj[key]}'`); return obj[key]; } }
                 return null;
             };
             const ticker = findColumnValue(row, ['ticker', 'symbol']);
@@ -529,6 +597,7 @@ export default function App() {
           });
           setImportData(normalizedData);
           setIsImportModalVisible(true);
+          setIsLoading(false);
         } catch (error) { console.error('Excel processing error:', error); setError(`Excel Processing Error: ${error.message}`); Alert.alert('Excel Processing Error', error.message); setIsLoading(false); }
       };
     
@@ -552,7 +621,7 @@ export default function App() {
     
             setPopupMessage(`Imported ${result.length} transactions successfully!`);
             setIsPopupVisible(true);
-            setTimeout(() => setIsPopupVisible(false), 3000);
+            setTimeout(() => setIsPopupVisible(false), 2000);
           } else {
             throw new Error('Bulk import function returned no result.');
           }
@@ -714,7 +783,7 @@ export default function App() {
           // 4. Show success popup
           setPopupMessage('All transaction data cleared!');
           setIsPopupVisible(true);
-          setTimeout(() => setIsPopupVisible(false), 3000);
+          setTimeout(() => setIsPopupVisible(false), 1000);
     
           // 5. No immediate reload needed here, UI is clear, DB summary is zeroed.
           // The next loadData call will fetch the correct zeroed state.
@@ -819,6 +888,7 @@ export default function App() {
         return filtered;
     }, [groupedAccounts, globalSearchTerm]);
 
+    
 
     // --- Render Active Tab Content ---
     const renderActiveTabContent = () => {
@@ -975,7 +1045,57 @@ export default function App() {
   const openAddStockModal = () => {
     setSelectedStock(null); setIsEditingStock(false); setIsAddingStock(true);
   };
-  
+    // --- Function to trigger file selection ---
+    const triggerFileSelect = async () => {
+        setMenuVisible(false); // Close menu immediately
+        setIsLoading(true); // Show loading indicator
+        setError(null); // Clear previous errors
+    
+        try {
+          const result = await DocumentPicker.getDocumentAsync({
+            type: [
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+              'application/vnd.ms-excel', // .xls
+              'text/csv', // .csv
+            ],
+            copyToCacheDirectory: Platform.OS !== 'web', // Recommended for native to ensure readability
+          });
+    
+          console.log("Document Picker Result:", JSON.stringify(result, null, 2)); // Detailed log
+    
+          // Handle modern Expo SDK result structure (assets array)
+          if (result.assets && result.assets.length > 0) {
+            const asset = result.assets[0];
+            if (!asset.uri) {
+              throw new Error("File URI is missing from picker result.");
+            }
+            console.log(`Selected file: ${asset.name}, URI: ${asset.uri}`);
+            await handleFileSelect(asset); // Pass the asset object
+          }
+          // Handle older Expo SDK result structure (type: 'success')
+          else if (result.type === 'success' && result.uri) {
+             console.warn("Using legacy DocumentPicker result structure.");
+             console.log(`Selected file: ${result.name}, URI: ${result.uri}`);
+             await handleFileSelect(result); // Pass the whole result object
+          }
+          // Handle cancellation
+          else if (result.canceled || result.type === 'cancel') {
+            console.log('File selection cancelled by user.');
+            setIsLoading(false); // Stop loading on cancellation
+          }
+          // Handle unexpected result
+          else {
+            console.warn("Unexpected document picker result structure:", result);
+            throw new Error("Failed to select file or unexpected result format.");
+          }
+        } catch (err) {
+          console.error('Error picking document:', err);
+          Alert.alert('Import Error', `Failed to select file: ${err.message}`);
+          setIsLoading(false); // Ensure loading stops on error
+        }
+        // Note: setIsLoading(false) is handled within handleFileSelect on success/error there
+      };
+    
     // --- Main Render ---
     return (
         <SafeAreaView style={newStyles.safeArea}>
@@ -1002,7 +1122,10 @@ export default function App() {
             <MenuDrawer
                 visible={menuVisible}
                 onClose={() => setMenuVisible(false)}
-                onImportPress={async () => { /* ... existing logic ... */ }}
+                onImportPress={() => {
+                    setMenuVisible(false); // Close menu first
+                    triggerFileSelect();   // Call the file selection function
+                }}
                 onClearDataPress={() => { setMenuVisible(false); handleClearAllData(); }}
                 onDisconnectPress={() => { setMenuVisible(false); handleDisconnect(); }}
             />
@@ -1018,13 +1141,6 @@ export default function App() {
             <ImportConfirmationModal visible={isImportModalVisible} data={importData} onCancel={() => { setIsImportModalVisible(false); setImportData(null); setIsLoading(false); }} onConfirm={handleBulkImport} />
             <ConnectionErrorModal visible={isConnectionErrorModalVisible} message={connectionErrorMessage} onOkPress={handleConnectionErrorOk} />
             <PopupNotification visible={isPopupVisible} message={popupMessage} />
-
-            {/* Global Loading Indicator */}
-            {isLoading && (
-                <View style={newStyles.loadingOverlay}>
-                    <ActivityIndicator size="large" color="#FFFFFF" />
-                </View>
-            )}
         </SafeAreaView>
     );
 }
@@ -1484,12 +1600,16 @@ const newStyles = StyleSheet.create({
         overflow: 'hidden', // Important for Picker on Android
         justifyContent: 'center', // Center picker vertically
         height: Platform.OS === 'ios' ? 38 : 40, // Match input height (adjust for platform)
+        // Remove any shadow or outline
     },
     portfolioSortPicker: {
         height: '100%', // Fill wrapper height
         width: '100%',
         backgroundColor: 'transparent', // Make wrapper bg visible
         color: '#1A2E4C', // Text color
+        borderWidth: 0, // Remove black outline
+        borderColor: 'transparent',
+        borderRadius: 8,
         // iOS requires wrapper height, Android might need direct height/padding
         ...(Platform.OS === 'ios' ? {} : { height: 40 }),
     },

@@ -245,8 +245,8 @@ const HoldingListItem = ({ item, onPress }) => {
 
 // New Account Detail Card
 const AccountCard = ({ accountName, accountData, onExpand, isExpanded, onTransactionPress, summaryData }) => {
-    const pnl = accountData.pnl || 0;
-    const isProfitable = pnl >= 0;
+    const accountPnl = accountData.pnl || 0; // Renamed to avoid conflict
+    const isProfitable = accountPnl >= 0; // Use the renamed variable
 
     // Find types from summary for badges
     const typeMap = useMemo(() => {
@@ -267,8 +267,8 @@ const AccountCard = ({ accountName, accountData, onExpand, isExpanded, onTransac
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                     <Text style={newStyles.accountValue}>${formatNumber(Math.round(accountData.totalValue || 0))}</Text>
-                    <Text style={[newStyles.accountPnl, isProfitable ? newStyles.profitText : newStyles.lossText]}>
-                        {isProfitable ? '+' : '-'}${formatNumber(Math.abs(pnl).toFixed(0))}
+                    <Text style={[newStyles.accountPnl, accountPnl >= 0 ? newStyles.profitText : newStyles.lossText]}>
+                        {isProfitable ? '+' : '-'}${formatNumber(Math.abs(accountPnl).toFixed(0))} {/* Use the renamed variable */}
                     </Text>
                 </View>
                 <Text style={newStyles.accountExpandIcon}>{isExpanded ? '▲' : '▼'}</Text>
@@ -280,6 +280,10 @@ const AccountCard = ({ accountName, accountData, onExpand, isExpanded, onTransac
                         .sort((a, b) => (a.ticker || '').localeCompare(b.ticker || ''))
                         .map((tx, index) => {
                             const displayType = typeMap.get(tx.ticker);
+                            // Removed extra return statement here
+                            const txPnl = tx.pnl || 0;
+                            const txPnlPercent = tx.costValue > 0 ? (txPnl / tx.costValue) * 100 : 0;
+                            const txIsProfitable = txPnl >= 0;
                             return (
                                 <TouchableOpacity
                                     key={tx.id || index}
@@ -288,11 +292,19 @@ const AccountCard = ({ accountName, accountData, onExpand, isExpanded, onTransac
                                 >
                                     <View style={newStyles.transactionLeft}>
                                         <Text style={newStyles.transactionTicker}>{tx.ticker}</Text>
-                                        {displayType && displayType !== 'stock' && <Text style={newStyles.transactionType}>{displayType}</Text>}
+                                        <Text style={newStyles.transactionQtyCost}>
+                                            {formatNumber(Math.round(tx.quantity || 0))} @ ${(tx.cost_basis ?? 0).toFixed(2)}
+                                        </Text>
                                     </View>
                                     <View style={newStyles.transactionRight}>
-                                        <Text style={newStyles.transactionQty}>{formatNumber(Math.round(tx.quantity || 0))} @ ${(tx.cost_basis ?? 0).toFixed(2)}</Text>
-                                        <Text style={newStyles.transactionValue}>${formatNumber(Math.round(tx.currentValue || 0))}</Text>
+                                        {/* Current Price */}
+                                        <Text style={newStyles.transactionCurrentPrice}>
+                                            ${(tx.currentPrice ?? 0).toFixed(2)}
+                                        </Text>
+                                        {/* P&L */}
+                                        <Text style={[newStyles.transactionPnl, txIsProfitable ? newStyles.profitText : newStyles.lossText]}>
+                                            {txIsProfitable ? '+' : '-'}${formatNumber(Math.abs(txPnl).toFixed(0))} ({txPnlPercent.toFixed(1)}%)
+                                        </Text>
                                     </View>
                                 </TouchableOpacity>
                             );
@@ -973,7 +985,10 @@ export default function App() {
 
                         {/* Conditional Rendering for List */}
                         {isLoading && activeHoldings.length === 0 ? ( // Show loading only if list is empty
-                            <ActivityIndicator size="large" color={newStyles.primaryColor.color} style={{ marginTop: 50 }} />
+                            <View style={newStyles.loadingContainer}>
+                                <ActivityIndicator size="large" color={newStyles.primaryColor.color} />
+                                <Text style={newStyles.loadingText}>Loading...</Text>
+                            </View>
                         ) : activeHoldings.length === 0 ? (
                             <View style={newStyles.emptyStateContainer}><Text style={newStyles.emptyStateText}>No active holdings.</Text></View>
                         ) : (
@@ -1013,7 +1028,10 @@ export default function App() {
                             />
                         </View>
                         {isLoading && accountNames.length === 0 ? (
-                             <ActivityIndicator size="large" color={newStyles.primaryColor.color} style={{ marginTop: 50 }} />
+                            <View style={newStyles.loadingContainer}>
+                                <ActivityIndicator size="large" color={newStyles.primaryColor.color} />
+                                <Text style={newStyles.loadingText}>Loading...</Text>
+                            </View>
                         ) : accountNames.length === 0 ? (
                              <View style={newStyles.emptyStateContainer}><Text style={newStyles.emptyStateText}>No accounts found{globalSearchTerm ? ' matching search' : ''}.</Text></View>
                         ) : (
@@ -1423,10 +1441,12 @@ const newStyles = StyleSheet.create({
     },
     transactionLeft: {
         flexDirection: 'row',
+        flex: 1, // Allow left side to take available space
         alignItems: 'center',
+        marginRight: 8, // Space between left and right
     },
     transactionTicker: {
-        fontSize: 15,
+        fontSize: 14, // Slightly smaller
         fontWeight: '500',
         color: '#1A2E4C',
     },
@@ -1442,17 +1462,28 @@ const newStyles = StyleSheet.create({
         overflow: 'hidden',
     },
     transactionRight: {
-        alignItems: 'flex-end',
+        alignItems: 'flex-end', // Align text to the right
+        flexShrink: 0, // Prevent right side from shrinking
     },
-    transactionQty: {
+    transactionQtyCost: { // Combined Qty and Avg Cost
         fontSize: 13,
         color: '#6C7A91',
+        marginLeft: 8, // Space after ticker
     },
-    transactionValue: {
+    transactionCurrentPrice: { // Style for current price in transaction row
         fontSize: 14,
         fontWeight: '500',
         color: '#1A2E4C',
-        marginTop: 2,
+        marginBottom: 2, // Space below price
+    },
+    transactionPnl: { // Style for P&L in transaction row
+        fontSize: 12,
+        fontWeight: '500',
+    },
+    transactionValue: { // Keep this if needed elsewhere, otherwise remove
+        // fontSize: 14,
+        // fontWeight: '500',
+        // color: '#1A2E4C',
     },
     // FAB
     fab: {
@@ -1481,6 +1512,18 @@ const newStyles = StyleSheet.create({
     lossText: { color: '#DC3545' }, // Red
     primaryColor: { color: '#0066cc' },
     // Loading & Empty State
+    loadingContainer: { // New style for loading indicator + text
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+        marginTop: 50, // Keep some top margin
+    },
+    loadingText: { // Style for the "Loading..." text
+        marginTop: 10,
+        fontSize: 16,
+        color: '#6C7A91',
+    },
     loadingOverlay: {
         position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.6)',

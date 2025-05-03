@@ -259,13 +259,15 @@ const AccountCard = ({ accountName, accountData, onExpand, isExpanded, onTransac
     return (
         <View style={newStyles.accountCard}>
             <TouchableOpacity style={newStyles.accountHeader} onPress={onExpand} activeOpacity={0.8}>
-                <View>
+                {/* Left Side */}
+                <View style={newStyles.accountHeaderLeft}>
                     <Text style={newStyles.accountName}>{accountName}</Text>
                     <Text style={newStyles.accountSubText}>
                         {accountData.transactions.length} {accountData.transactions.length === 1 ? 'Transaction' : 'Transactions'}
                     </Text>
                 </View>
-                <View style={{ alignItems: 'flex-end' }}>
+                {/* Middle Section */}
+                <View style={newStyles.accountHeaderMiddle}>
                     <Text style={newStyles.accountValue}>${formatNumber(Math.round(accountData.totalValue || 0))}</Text>
                     <Text style={[newStyles.accountPnl, accountPnl >= 0 ? newStyles.profitText : newStyles.lossText]}>
                         {isProfitable ? '+' : '-'}${formatNumber(Math.abs(accountPnl).toFixed(0))} {/* Use the renamed variable */}
@@ -486,7 +488,6 @@ export default function App() {
     // --- Effects (Keep existing useEffects) ---
     useEffect(() => { if (supabaseClient) loadData(); }, [supabaseClient, loadData]);
     // This effect is now for the Account Detail search, not global tab switching
-    // useEffect(() => { if (activeTab === 'portfolio') setGlobalSearchTerm(''); }, [activeTab]);
 
     // --- File Handling / Import ---
       const handleFileSelect = async (result) => {
@@ -887,20 +888,48 @@ export default function App() {
         if (!globalSearchTerm) return groupedAccounts;
         const filtered = {};
         const searchTermLower = globalSearchTerm.toLowerCase();
+        // Create a quick lookup map for company names from summaryData
+        const companyNameMap = new Map(summaryData.map(item => [item.ticker, item.company_name]));
+
         Object.keys(groupedAccounts).forEach(accountName => {
             const account = groupedAccounts[accountName];
+            // Check if account name matches
+            const accountNameMatch = (accountName || '').toLowerCase().includes(searchTermLower);
+            // Check if any transaction ticker OR company name matches
             const filteredTransactions = account.transactions.filter(tx =>
                 (tx.ticker || '').toLowerCase().includes(searchTermLower) ||
-                (accountName || '').toLowerCase().includes(searchTermLower)
+                (companyNameMap.get(tx.ticker) || '').toLowerCase().includes(searchTermLower) // Check company name
             );
-            if (filteredTransactions.length > 0 || (accountName || '').toLowerCase().includes(searchTermLower)) {
+            // Include the account if the account name matches OR any of its transactions match ticker/company name
+            if (accountNameMatch || filteredTransactions.length > 0) {
                 filtered[accountName] = { ...account, transactions: filteredTransactions };
             }
         });
         return filtered;
     }, [groupedAccounts, globalSearchTerm]);
 
-    
+    // --- Effect to Auto-Expand Accounts on Navigation (Moved Here) ---
+    useEffect(() => {
+        // Only run when switching TO the accountDetail tab
+        if (activeTab === 'accountDetail') { 
+            // If search term is cleared, collapse all cards
+            if (!globalSearchTerm) {
+                setExpandedAccounts({});
+                return; // Exit early
+            }
+
+            // Get the names of accounts currently filtered/visible
+            const visibleAccountNames = Object.keys(filteredGroupedAccounts);
+            if (visibleAccountNames.length > 0) {
+                const newExpandedState = {};
+                visibleAccountNames.forEach(name => {
+                    newExpandedState[name] = true; // Expand accounts matching search
+                });
+                setExpandedAccounts(newExpandedState);
+            }
+        }
+    }, [activeTab, filteredGroupedAccounts, globalSearchTerm]); // Add globalSearchTerm dependency
+
 
     // --- Render Active Tab Content ---
     const renderActiveTabContent = () => {
@@ -1000,7 +1029,8 @@ export default function App() {
                                         item={item}
                                         onPress={() => {
                                             setActiveTab('accountDetail');
-                                            setGlobalSearchTerm(item.ticker); // Pre-fill search for account detail
+                                            //setGlobalSearchTerm(item.ticker); // Pre-fill search for account detail
+                                            setGlobalSearchTerm(item.company_name || item.ticker); // Search by NAME, fallback to ticker
                                         }}
                                     />
                                 )}
@@ -1147,7 +1177,14 @@ export default function App() {
                 onClearDataPress={() => { setMenuVisible(false); handleClearAllData(); }}
                 onDisconnectPress={() => { setMenuVisible(false); handleDisconnect(); }}
             />
-            <AddStockForm visible={isAddingStock} onClose={() => { setIsAddingStock(false); setIsEditingStock(false); setSelectedStock(null); }} onSubmit={isEditingStock ? handleUpdateStock : handleAddStock} initialValues={selectedStock} isEditing={isEditingStock} />
+            <AddStockForm
+              visible={isAddingStock}
+              onClose={() => { setIsAddingStock(false); setIsEditingStock(false); setSelectedStock(null); }}
+              onSubmit={isEditingStock ? handleUpdateStock : handleAddStock}
+              initialValues={selectedStock}
+              isEditing={isEditingStock}
+              loading={isLoading}
+            />
             <Modal visible={isClearDataModalVisible} /* ... existing props ... */ >
                 {/* ... existing Clear Data Modal JSX ... */}
                  <View style={newStyles.modalOverlay}><View style={newStyles.modalContainer}><Text style={newStyles.modalTitle}>Confirm Clear Data</Text><Text style={newStyles.modalMessage}>Delete ALL transactions from 'investment_accounts'? This cannot be undone.</Text><View style={newStyles.modalButtons}><TouchableOpacity style={[newStyles.modalButton, newStyles.cancelButton]} onPress={() => setIsClearDataModalVisible(false)}><Text style={newStyles.cancelButtonText}>Cancel</Text></TouchableOpacity><TouchableOpacity style={[newStyles.modalButton, newStyles.confirmButton, { backgroundColor: '#dc3545' }]} onPress={confirmClearAllData}><Text style={newStyles.confirmButtonText}>Delete All</Text></TouchableOpacity></View></View></View>
@@ -1176,7 +1213,6 @@ const newStyles = StyleSheet.create({
     header: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
         paddingHorizontal: 15,
         paddingTop: Platform.OS === 'ios' ? 10 : 15, // Adjust top padding
         paddingBottom: 10,
@@ -1396,10 +1432,24 @@ const newStyles = StyleSheet.create({
     },
     accountHeader: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
+        justifyContent: 'space-between', // Space out left, middle, right
         alignItems: 'center',
         padding: 15,
         backgroundColor: '#FAFBFC',
+    },
+    accountHeaderLeft: { // New style for left content
+        flex: 10, // Allow left side to take up remaining space
+        flexShrink: 1, // Allow shrinking if needed
+        marginRight: 10, // Space between left and middle
+        alignItems: 'flex-start', // Align text left
+    },
+    accountHeaderMiddle: { // New style for middle content
+        width: 1050, // Give the middle section a fixed width (adjust as needed)
+        alignItems: 'center', // Center value and P&L vertically
+    },
+    accountHeaderRight: { // New style for right content
+        // This view is no longer used for value/pnl, only the icon
+        // alignItems: 'flex-end', // Keep if needed for icon alignment
     },
     accountName: {
         fontSize: 17,
@@ -1414,16 +1464,18 @@ const newStyles = StyleSheet.create({
     accountValue: {
         fontSize: 16,
         fontWeight: '600',
+        // textAlign: 'center', // Remove or set to 'left' (default)
         color: '#1A2E4C',
     },
     accountPnl: {
         fontSize: 12,
         fontWeight: '500',
+        textAlign: 'left', // Remove or set to 'left' (default)
         marginTop: 2,
     },
     accountExpandIcon: {
         fontSize: 16,
-        color: '#6C7A91',
+        color: '#6C7A91', // Keep icon on the far right
         marginLeft: 10,
     },
     accountDetailsContent: {

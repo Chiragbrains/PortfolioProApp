@@ -41,7 +41,8 @@ const PortfolioGraph = () => {
   const [chartWidth, setChartWidth] = useState(screenWidth);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [showIndicator, setShowIndicator] = useState(true); // CHANGED: Set default to true to show the indicator
-  const [indicatorX, setIndicatorX] = useState(0);
+  const indicatorX = useRef(new Animated.Value(0)).current;
+  const [selectedIndex, setSelectedIndex] = useState(null);
 
   const { supabaseClient } = useSupabaseConfig(); // Get client
 
@@ -178,7 +179,11 @@ const PortfolioGraph = () => {
             
             // ADDED: Set initial indicator position at the end of the chart
             const { drawableWidth, startX } = getChartLayout();
-            setIndicatorX(startX + drawableWidth);
+            Animated.timing(indicatorX, {
+                toValue: startX + drawableWidth,
+                duration: 0,
+                useNativeDriver: false,
+            }).start();
         }
 
       } else {
@@ -236,7 +241,11 @@ const PortfolioGraph = () => {
     
     console.log(`updateIndicatorAndData - clampedTouchX (indicatorX): ${clampedTouchX.toFixed(2)}`); // <<< ADD THIS LOG
 
-    setIndicatorX(clampedTouchX);
+    Animated.timing(indicatorX, {
+      toValue: clampedTouchX,
+      duration: 50,
+      useNativeDriver: false,
+    }).start();
 
     let relativeX = 0;
     if (drawableWidth > 0) {
@@ -251,6 +260,7 @@ const PortfolioGraph = () => {
 
     updateSelectedPoint(index);
 
+    setSelectedIndex(index);
   }, [historyData, getChartLayout, updateSelectedPoint]);
 
   const panGesture = Gesture.Pan()
@@ -284,7 +294,11 @@ const PortfolioGraph = () => {
           updateSelectedPoint(historyData.originalData.length - 1);
           // ADDED: Update indicator position to the end of the chart
           const { drawableWidth, startX } = getChartLayout();
-          setIndicatorX(startX + drawableWidth);
+          Animated.timing(indicatorX, {
+            toValue: startX + drawableWidth,
+            duration: 0,
+            useNativeDriver: false,
+          }).start();
       }
   }, [historyData, updateSelectedPoint, getChartLayout]);
 
@@ -468,20 +482,23 @@ const PortfolioGraph = () => {
                 style={styles.chart} // Contains paddingLeft, paddingRight
                 decorator={() => {
                   if (!selectedPoint) return null;
-                  // REMOVED: if (!showIndicator || !selectedPoint) return null;
                   const { pointY } = decoratorValues;
-                  console.log(`Decorator rendering - indicatorX: ${indicatorX}, pointY: ${pointY}`); // <<< ADD THIS LOG
-
                   return (
-                    // Apply pointerEvents via style prop
-                    <View
-                      key={`decorator-${selectedPoint.index}`}
-                      style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]} // <--- CHANGE HERE
-                    >
-                      {/* Vertical Line */}
-                      <View style={[ styles.decoratorLine, { left: indicatorX } ]} />
-                      {/* Circle on the line */}
-                      <View style={[ styles.decoratorDot, { top: pointY - 4, left: indicatorX - 4 } ]} />
+                    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+                      {/* Vertical bar */}
+                      <Animated.View
+                        style={[
+                          styles.decoratorLine,
+                          { left: indicatorX }
+                        ]}
+                      />
+                      {/* Dot */}
+                      <Animated.View
+                        style={[
+                          styles.decoratorDot,
+                          { top: pointY - 7, left: Animated.subtract(indicatorX, 7) }
+                        ]}
+                      />
                     </View>
                   );
                 }}
@@ -621,22 +638,26 @@ const styles = StyleSheet.create({
   // Styles for Decorator elements
   decoratorLine: {
     position: 'absolute',
-    //left: indicatorX, // Uses state variable directly for smooth gliding
     top: CHART_MARGIN_VERTICAL,
     bottom: CHART_MARGIN_VERTICAL,
-    width: 1.5,
-    backgroundColor: '#0D47A1',
+    width: 2,
+    backgroundColor: '#1976D2', // Modern blue
+    borderRadius: 1,
+    opacity: 0.7,
   },
   decoratorDot: {
     position: 'absolute',
-    // left is set dynamically based on indicatorX
-    // top is set dynamically based on pointY
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#1565C0',
-    borderWidth: 1.5,
-    borderColor: 'white',
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#fff',
+    borderWidth: 3,
+    borderColor: '#1976D2',
+    shadowColor: '#1976D2',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
 });
 

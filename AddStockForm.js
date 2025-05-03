@@ -7,14 +7,15 @@ import {
   StyleSheet,
   Modal,
   ScrollView,
-  Alert
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { fetchInvestmentAccounts } from './stocksService';
 import { useSupabaseConfig } from './SupabaseConfigContext';
 
 
-const AddStockForm = ({ visible, onClose, onSubmit, initialValues = null, isEditing = false }) => {
+const AddStockForm = ({ visible, onClose, onSubmit, initialValues = null, isEditing = false, loading = false }) => {
   const { supabaseClient } = useSupabaseConfig();
   const [stockData, setStockData] = useState({
     ticker: '',
@@ -107,12 +108,16 @@ const AddStockForm = ({ visible, onClose, onSubmit, initialValues = null, isEdit
     >
       <View style={styles.modalContainer}>
         <View style={styles.formContainer}>
+          {loading && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color="#0066cc" />
+            </View>
+          )}
           <Text style={styles.formTitle}>
             {isEditing ? 'Edit Stock' : 'Add New Stock'}
           </Text>
-          
-          <ScrollView>
-            <View style={styles.inputContainer}>
+          <ScrollView scrollEnabled={!loading}>
+            <View style={styles.inputContainer} pointerEvents={loading ? 'none' : 'auto'}>
               <Text style={styles.label}>Ticker Symbol:</Text>
               <TextInput
                 style={styles.input}
@@ -122,16 +127,15 @@ const AddStockForm = ({ visible, onClose, onSubmit, initialValues = null, isEdit
                 autoCapitalize="characters"
                 autoCorrect={false}
                 spellCheck={false}
-                editable={!isEditing}
+                editable={!isEditing && !loading}
               />
             </View>
-            
-            <View style={styles.inputContainer}>
+            <View style={styles.inputContainer} pointerEvents={loading ? 'none' : 'auto'}>
               <Text style={styles.label}>Account</Text>
               <Picker
                 style={styles.picker}
                 selectedValue={stockData.account}
-                enabled={!isEditing}
+                enabled={!isEditing && !loading}
                 onValueChange={(itemValue) => {
                   if (!isEditing) {
                     setStockData({...stockData, account: itemValue});
@@ -145,17 +149,16 @@ const AddStockForm = ({ visible, onClose, onSubmit, initialValues = null, isEdit
                 <Picker.Item label="+ Add New Account" value="new_account" />
               </Picker>
             </View>
-            
             {stockData.account === 'new_account' && (
               <TextInput
                 style={styles.input}
                 value={stockData.account === 'new_account' ? '' : stockData.account}
                 onChangeText={(text) => setStockData({...stockData, account: text})}
                 placeholder="Enter new account name"
+                editable={!loading}
               />
             )}
-            
-            <View style={styles.inputContainer}>
+            <View style={styles.inputContainer} pointerEvents={loading ? 'none' : 'auto'}>
               <Text style={styles.label}>Quantity:</Text>
               <TextInput
                 style={styles.input}
@@ -167,10 +170,10 @@ const AddStockForm = ({ visible, onClose, onSubmit, initialValues = null, isEdit
                 keyboardType="numeric"
                 placeholder="Enter quantity"
                 autoCorrect={false}
+                editable={!loading}
               />
             </View>
-            
-            <View style={styles.inputContainer}>
+            <View style={styles.inputContainer} pointerEvents={loading ? 'none' : 'auto'}>
               <Text style={styles.label}>Cost Basis per Share:</Text>
               <TextInput
                 style={styles.input}
@@ -182,39 +185,21 @@ const AddStockForm = ({ visible, onClose, onSubmit, initialValues = null, isEdit
                 keyboardType="decimal-pad"
                 placeholder="Enter cost per share"
                 autoCorrect={false}
+                editable={!loading}
               />
             </View>
-            
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>Type</Text>
-              <Picker
-                style={styles.picker}
-                selectedValue={stockData.type}
-                enabled={!isEditing}
-                onValueChange={(itemValue) => {
-                  if (!isEditing) {
-                    setStockData({...stockData, type: itemValue});
-                  }
-                }}
-              >
-                <Picker.Item label="Stock" value="Stock" />
-                <Picker.Item label="ETF" value="ETF" />
-                <Picker.Item label="CASH" value="CASH" />
-              </Picker>
-            </View>
           </ScrollView>
-          
-          <View style={styles.buttonContainer}>
+          <View style={styles.buttonContainer} pointerEvents={loading ? 'none' : 'auto'}>
             {isEditing && (
-              <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
+              <TouchableOpacity style={styles.deleteButton} onPress={handleDelete} disabled={loading}>
                 <Text style={styles.buttonText}>Delete</Text>
               </TouchableOpacity>
             )}
             <View style={styles.actionButtons}>
-              <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+              <TouchableOpacity style={styles.cancelButton} onPress={onClose} disabled={loading}>
                 <Text style={styles.buttonText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
+              <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={loading}>
                 <Text style={styles.buttonText}>{isEditing ? 'Update' : 'Add'}</Text>
               </TouchableOpacity>
             </View>
@@ -298,6 +283,13 @@ const styles = StyleSheet.create({
   buttonText: {
     color: 'white',
     fontWeight: 'bold',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
   },
 });
 

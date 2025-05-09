@@ -1,4 +1,3 @@
-// /Users/chirag/Downloads/Test App - Coding/StockPortfolioApp/stocksService.js
 // Updated to use investment_accounts and portfolio_summary tables
 
 /**

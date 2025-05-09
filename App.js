@@ -1438,18 +1438,20 @@ const newStyles = StyleSheet.create({
         backgroundColor: '#FAFBFC',
     },
     accountHeaderLeft: { // New style for left content
-        flex: -100, // Allow left side to take up remaining space
-        flexShrink: -1, // Allow shrinking if needed
-        marginRight: 0, // Space between left and middle
-        alignItems: 'flex-start', // Align text left
-    },
-    accountHeaderMiddle: { // New style for middle content
-        width: 500, // Give the middle section a fixed width (adjust as needed)
-        alignItems: 'center', // Center value and P&L vertically
-    },
+         flex: 1, // Allow left side to take up remaining space
+    //     flexShrink: -1, // Allow shrinking if needed
+         marginRight: 10, // Space between left and middle
+    //     alignItems: 'flex-start', // Align text left
+     },
+     accountHeaderMiddle: { // New style for middle content
+         width: 200, // Give the middle section a fixed width (adjust as needed)
+        // alignItems: 'center', // Center value and P&L vertically
+     },
     accountHeaderRight: { // New style for right content
         // This view is no longer used for value/pnl, only the icon
-        alignItems: 'flex-end', // Keep if needed for icon alignment
+        //alignItems: 'flex-end', // Keep if needed for icon alignment
+        flexDirection: 'row',
+        alignItems: 'center',
     },
     accountName: {
         fontSize: 17,

@@ -268,8 +268,6 @@ export const truncateInvestmentAccounts = async (supabaseClient) => {
   }
 };
 
-// --- Functions below remain largely the same as they interact with history or trigger the Edge Function ---
-
 /**
  * Fetches historical portfolio data.
  * @param {SupabaseClient} supabaseClient
@@ -277,22 +275,34 @@ export const truncateInvestmentAccounts = async (supabaseClient) => {
  * @returns {Promise<Array>}
  */
 export const fetchPortfolioHistory = async (supabaseClient, days = 90) => {
-    if (!supabaseClient) throw new Error("Supabase client is required.");
-    console.log(`Fetching portfolio history for the last ${days} days.`);
+    if (!supabaseClient) return null;
+    
     try {
-        const today = new Date();
-        const startDate = new Date(today);
-        startDate.setDate(today.getDate() - days);
-        const startDateString = startDate.toISOString().split('T')[0];
-        const { data, error } = await supabaseClient
-        .from('portfolio_history') // Correct table
-        .select('date, total_value, total_cost_basis, total_pnl, cash_value, created_at')
-        .gte('date', startDateString)
-        .order('date', { ascending: true });
-        if (error) throw new Error(`Failed to fetch portfolio history: ${error.message}`);
-        return data || [];
-    } catch (error) { throw error; }
+        const { data: historyData, error } = await supabaseClient
+            .from('portfolio_history')
+            .select('*')
+            .order('date', { ascending: true })
+            .gte('date', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+        
+        if (error) throw error;
+        
+        // Process the history data to avoid double-counting cash
+        const processedData = historyData.map(record => ({
+            ...record,
+            // Use total_value directly as it already includes cash
+            total_value: record.total_value || 0,
+            date: record.date
+        }));
+        
+        return processedData;
+        
+    } catch (error) {
+        console.error('Error fetching portfolio history:', error);
+        return null;
+    }
 };
+
+// --- Functions below remain largely the same as they interact with history or trigger the Edge Function ---
 
 /**
  * Checks history and invokes the 'portfolio-processor' Edge Function if needed,

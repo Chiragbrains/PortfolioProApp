@@ -10,16 +10,18 @@ import {
   Animated,
   Platform,
   TouchableWithoutFeedback,
+  TextInput,
+  ScrollView, // Import ScrollView
 } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
-import { fetchPortfolioHistory } from './stocksService'; // Assuming this correctly filters by days
+import { fetchPortfolioSummary, fetchInvestmentAccounts, addInvestmentAccount, updateInvestmentAccount, deleteInvestmentAccount, bulkImportInvestmentAccounts, truncateInvestmentAccounts, refreshPortfolioDataIfNeeded, fetchPortfolioHistory } from './stocksService'; // Update import statement at the top to include fetchPortfolioHistory
 import {
   Gesture,
   GestureDetector,
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
 import { useSupabaseConfig } from './SupabaseConfigContext'; // Import hook
-
+import { GROQ_API_KEY } from '@env'; // Import the Groq key from .env
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -32,7 +34,7 @@ const CHART_MARGIN_VERTICAL = 10;
 const CHART_HEIGHT = 220;
 // --- End Chart Configuration Constants ---
 
-const PortfolioGraph = () => {
+export const PortfolioGraph = () => {
   const [historyData, setHistoryData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -43,6 +45,10 @@ const PortfolioGraph = () => {
   const [showIndicator, setShowIndicator] = useState(true); // CHANGED: Set default to true to show the indicator
   const indicatorX = useRef(new Animated.Value(0)).current;
   const [selectedIndex, setSelectedIndex] = useState(null);
+  const [query, setQuery] = useState('');
+  const [queryResults, setQueryResults] = useState(null); // State for results
+  const [lastExecutedQuery, setLastExecutedQuery] = useState(''); // State for the user's query text
+  const [llmTextResponse, setLlmTextResponse] = useState(''); // New state for LLM's formatted text response
 
   const { supabaseClient } = useSupabaseConfig(); // Get client
 
@@ -172,7 +178,7 @@ const PortfolioGraph = () => {
             const lastCashValue = lastDataPoint.cash_value || 0;
             const lastStockValue = lastDataPoint.total_value || 0;
             setSelectedPoint({
-                value: lastStockValue + lastCashValue,
+                value: lastStockValue,
                 date: lastDataPoint.date,
                 index: lastIndex,
             });
@@ -235,11 +241,11 @@ const PortfolioGraph = () => {
     const { drawableWidth, startX, effectiveChartWidth } = getChartLayout();
     const dataPoints = historyData.datasets[0].data.length;
 
-    console.log(`updateIndicatorAndData - touchX: ${touchX.toFixed(2)}, startX: ${startX.toFixed(2)}, drawableWidth: ${drawableWidth.toFixed(2)}, chartWidth: ${chartWidth}, effectiveChartWidth: ${effectiveChartWidth}`); // <<< ADD THIS LOG
+    //console.log(`updateIndicatorAndData - touchX: ${touchX.toFixed(2)}, startX: ${startX.toFixed(2)}, drawableWidth: ${drawableWidth.toFixed(2)}, chartWidth: ${chartWidth}, effectiveChartWidth: ${effectiveChartWidth}`); // <<< ADD THIS LOG
 
     const clampedTouchX = Math.max(startX, Math.min(touchX, startX + drawableWidth));
     
-    console.log(`updateIndicatorAndData - clampedTouchX (indicatorX): ${clampedTouchX.toFixed(2)}`); // <<< ADD THIS LOG
+    //console.log(`updateIndicatorAndData - clampedTouchX (indicatorX): ${clampedTouchX.toFixed(2)}`); // <<< ADD THIS LOG
 
     Animated.timing(indicatorX, {
       toValue: clampedTouchX,
@@ -265,7 +271,7 @@ const PortfolioGraph = () => {
 
   const panGesture = Gesture.Pan()
     .onBegin((event) => {
-           console.log('panGesture: onBegin - Setting showIndicator to TRUE'); // <<< LOG ADDED
+           //console.log('panGesture: onBegin - Setting showIndicator to TRUE'); // <<< LOG ADDED
            setShowIndicator(true);
            updateIndicatorAndData(event.x);
     })
@@ -274,13 +280,13 @@ const PortfolioGraph = () => {
           updateIndicatorAndData(event.x);
       } else {
         // This case might happen if onBegin didn't fire correctly or state update was delayed
-        console.log('panGesture: onUpdate - SKIPPING update, showIndicator is FALSE'); // <<< LOG ADDED
+        //console.log('panGesture: onUpdate - SKIPPING update, showIndicator is FALSE'); // <<< LOG ADDED
         setShowIndicator(true); // ADDED: Force indicator to show
         updateIndicatorAndData(event.x);
       }
     })
     .onEnd(() => {
-      console.log('panGesture: onEnd'); // <<< LOG ADDED
+      //console.log('panGesture: onEnd'); // <<< LOG ADDED
       // REMOVED: Don't hide indicator on pan end
     })
     .hitSlop({ top: -10, bottom: -10, left: -CHART_PADDING_LEFT, right: -CHART_PADDING_RIGHT });
@@ -314,8 +320,8 @@ const PortfolioGraph = () => {
         const previousValue = previousDataPoint ? previousDataPoint.total_value || 0 : 0; // Only use stock value
 
         // Log the values being used
-        console.log(`  Current Value : ${currentValue}`);
-        console.log(`  Previous Value : ${previousValue}`); // Compare if needed
+        //console.log(`  Current Value : ${currentValue}`);
+        //console.log(`  Previous Value : ${previousValue}`); // Compare if needed
 
         if (previousValue != null && previousValue !== 0) {
           const gainLoss = currentValue - previousValue;
@@ -333,7 +339,194 @@ const PortfolioGraph = () => {
     return value >= 0 ? styles.positiveChange : styles.negativeChange;
   };
 
-  // --- Render Logic ---
+  const handleQuerySubmit = async () => {
+    console.log ("Question from user: ", query);
+    if (!query.trim()) {
+      console.log("Query is empty, skipping.");
+      // Optionally show a message to the user
+      return;
+  }
+  setIsLoading(true); // Indicate processing
+  setError(null);
+  setQueryResults(null); // Clear previous results
+  setLastExecutedQuery(''); // Clear previous query text
+  setLlmTextResponse(''); // Reset LLM text response
+  try {
+      const sqlQuery = await interpretQuery(query);
+      console.log("Generated SQL:", sqlQuery);
+
+      if (sqlQuery && sqlQuery !== 'QUERY_UNANSWERABLE') {
+          const results = await fetchFromSupabase(sqlQuery); // Execute the query returned by interpretQuery
+          setQueryResults(results); // Store results in state
+          setLastExecutedQuery(query); // Store the user's query text
+          console.log("Query executed successfully, results stored in state.");
+          // New: Get formatted text response from LLM using the results
+          if (results && results.length > 0) {
+            const formattedText = await getFormattedTextResponseFromLLM(query, results);
+            if (formattedText) {
+                setLlmTextResponse(formattedText);
+                // If we get a good text response, we might not need to show the raw queryResults table.
+            }
+          }
+      } else if (sqlQuery === 'QUERY_UNANSWERABLE') {
+           console.log("Query cannot be answered with the provided schema.");
+           alert("Sorry, I can't answer that question based on the available portfolio data.");
+           setError("Query cannot be answered with the provided schema."); // Set error state
+          } else if (sqlQuery !== null) { // Only throw if LLM returned something other than null or UNANSWERABLE
+              throw new Error("LLM did not return a valid SQL query.");
+      }
+  } catch (error) {
+      console.error("Error processing query:", error);
+      setError(`Failed to process query: ${error.message}`);
+      alert(`Error: ${error.message}`); // Show error to user
+  } finally {
+      setIsLoading(false); // Stop loading indicator
+  }
+};
+
+  const interpretQuery = async (userQuery) => {
+    const systemPrompt = `You are an expert SQL generator. Your task is to translate natural language questions into SQL SELECT queries for a specific table.
+Database Schema:
+Table Name: portfolio_summary
+Columns:
+- ticker: TEXT (Stock ticker symbol)
+- company_name: TEXT (Name of the company)
+- total_quantity: NUMERIC (Number of shares owned)
+- average_cost_basis: NUMERIC (Average purchase price per share)
+- current_price: NUMERIC (Latest market price per share)
+- total_cost_basis_value: NUMERIC (total_quantity * average_cost_basis)
+- market_value: NUMERIC (quantity * current_price)
+- pnl_dollar: NUMERIC (market_value - total_cost_basis_value)
+- pnl_percent: NUMERIC (Value already in percentage form, no need to multiply by 100)
+- portfolio_percent: NUMERIC (market_value / total_portfolio_value) shown as a percentage
+- type: TEXT (Type of asset, e.g., stock, etf or cash)
+- last_updated: TIMESTAMP (When the data was last refreshed)
+
+Constraints:
+1. ONLY generate SQL SELECT queries. Do not generate INSERT, UPDATE, DELETE, or any other type of SQL statement.
+2. ONLY query the 'portfolio_summary' table. Do not refer to any other tables.
+3. Ensure the generated SQL is valid for PostgreSQL.
+4. If the user's question cannot be answered with a SELECT query on the 'portfolio_summary' table based on the provided schema, respond ONLY with the exact text 'QUERY_UNANSWERABLE'.
+5. When asked about "how many" shares or a specific quantity of a stock, select the 'total_quantity' column. Do not use COUNT(*).
+6. For queries about losses or worst performing stocks, use ORDER BY pnl_dollar ASC (ascending order to show biggest losses first).
+7. For queries about gains or best performing stocks, use ORDER BY pnl_dollar DESC (descending order to show biggest gains first).
+
+Examples:
+- User: "how many apple stocks do I have?" -> SQL: SELECT total_quantity FROM portfolio_summary WHERE ticker = 'AAPL'
+- User: "what is my biggest loss?" -> SQL: SELECT ticker, pnl_dollar FROM portfolio_summary ORDER BY pnl_dollar ASC LIMIT 1
+- User: "which stock am I losing the most on?" -> SQL: SELECT ticker, pnl_dollar FROM portfolio_summary ORDER BY pnl_dollar ASC LIMIT 1
+- User: "what is my biggest gain?" -> SQL: SELECT ticker, pnl_dollar FROM portfolio_summary ORDER BY pnl_dollar DESC LIMIT 1
+- User: "what is the total value of my portfolio?" -> SQL: SELECT SUM(market_value) FROM portfolio_summary
+`;
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${GROQ_API_KEY}`, // Use the Groq key from environment variables
+        },
+        body: JSON.stringify({
+          model: "llama3-8b-8192", // Or another model available on Groq like mixtral-8x7b-32768
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userQuery }
+            ]
+        }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error("Groq API Error Body:", errorBody);
+      throw new Error(`Groq API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log("Groq API Response:", data);
+
+    // Extract the SQL query from the response
+    if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+        const rawContent = data.choices[0].message.content;
+        let extractedSql = null;
+        
+        // 1. Check for exact refusal string first
+        if (rawContent === 'QUERY_UNANSWERABLE') {
+          return 'QUERY_UNANSWERABLE';
+      }
+        // 2. Try regex to find SELECT statements within markdown blocks
+        const sqlRegex = /```(?:sql)?\s*(SELECT[\s\S]*?)(?:;)?\s*```|^(SELECT[\s\S]*?)(?:;)?$/im;
+        const match = rawContent.match(sqlRegex);
+
+        if (match) {
+            // Prefer the captured group within backticks (match[1]) or the standalone query (match[2])
+            extractedSql = (match[1] || match[2] || '').trim();
+          } else {
+            // 3. If regex fails, check for "SQL:" prefix (case-insensitive)
+            let potentialSql = rawContent;
+            if (potentialSql.toUpperCase().startsWith('SQL:')) {
+                potentialSql = potentialSql.substring(4).trim();
+            }
+
+            // 4. Check if the remaining string looks like a SELECT query
+            if (potentialSql.toUpperCase().startsWith('SELECT')) {
+                extractedSql = potentialSql;
+            }
+        }  
+        // 5. Clean trailing semicolon from whatever was extracted
+        if (extractedSql && extractedSql.endsWith(';')) {
+          extractedSql = extractedSql.slice(0, -1).trim(); // Trim again after slice
+      }
+      // 6. Final validation
+        if (extractedSql && extractedSql.toUpperCase().startsWith('SELECT')) {
+             return extractedSql; // Return the extracted and cleaned query
+        } else if (rawContent.trim() === 'QUERY_UNANSWERABLE') {
+             // Handle the specific refusal string separately
+             return 'QUERY_UNANSWERABLE';
+        }
+        else {
+          console.warn("LLM response did not contain a valid SELECT query or refusal:", originalContent); // Log original
+          return null;
+        }
+    } else {
+        console.error("Unexpected response structure from Groq API:", data);
+        throw new Error("Failed to parse SQL query from Groq response.");
+    }
+  };
+
+    // *** NEW FUNCTION: Execute SQL query via Supabase RPC ***
+    const fetchFromSupabase = async (sqlQuery) => {
+      if (!supabaseClient) {
+        throw new Error("Supabase client not available.");
+      }
+      if (!sqlQuery || typeof sqlQuery !== 'string' || !sqlQuery.trim().toUpperCase().startsWith('SELECT')) {
+          throw new Error("Invalid or non-SELECT SQL query provided.");
+      }
+  
+      console.log("Executing Supabase query via RPC:", sqlQuery);
+      try {
+        // Assumes you have a PostgreSQL function `execute_sql(sql text)` in Supabase
+        // that executes the SQL and returns JSON. See notes below.
+        const { data, error } = await supabaseClient.rpc('execute_sql', { sql_query: sqlQuery }); // Match the parameter name in the PG function
+  
+        if (error) {
+          console.error("Supabase RPC error:", error);
+          // Try to provide a more specific error message if possible
+          let errorMessage = `Database query failed: ${error.message}`;
+          if (error.details) errorMessage += ` Details: ${error.details}`;
+          if (error.hint) errorMessage += ` Hint: ${error.hint}`;
+          throw new Error(errorMessage);
+        }
+  
+        console.log("Supabase query results:", data);
+        // The RPC function returns a JSON array (or null/empty array)
+        return data || []; // Return data or an empty array if data is null/undefined
+  
+      } catch (rpcError) {
+          // Catch errors from the rpc call itself or the ones we threw
+          console.error("Error during Supabase RPC call:", rpcError);
+          // Re-throw the error so handleQuerySubmit can catch it
+          throw rpcError;
+      }
+    };
+    // *** END NEW FUNCTION ***
 
   if (isLoading) {
     // Keep loading state simple
@@ -357,6 +550,154 @@ const PortfolioGraph = () => {
       </View>
     );
   }
+
+  const getFormattedTextResponseFromLLM = async (originalUserQuery, databaseResults) => {
+    if (!databaseResults || databaseResults.length === 0) {
+      return "No data was found to answer your question.";
+    }
+  
+    // Remove the slice and use all results
+    const safeUserQuery = String(originalUserQuery || '');
+  
+    console.log("Requesting formatted text response from LLM...");
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "llama3-8b-8192",
+          messages: [
+            { 
+              role: "system", 
+              content: `You are an AI assistant that provides clear and concise natural language answers based on database query results.
+Given a user's question and database results, formulate a helpful text response.
+Important notes about the data:
+- For money values, use appropriate currency formatting
+- The pnl_percent and portfolio_percent fields are already in percentage form (e.g., 5.2 means 5.2%), do not multiply by 100
+Be direct and clear in your response. Mention all relevant results in your response.`
+            },
+            { 
+              role: "user", 
+              content: `Question: "${safeUserQuery}"
+Database Results: ${JSON.stringify(databaseResults, null, 2)}`
+            }
+          ],
+        }),
+      });
+  
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error("LLM Text Response API Error Body:", errorBody);
+        throw new Error(`LLM Text Response API error: ${response.status} ${response.statusText}`);
+      }
+  
+      const data = await response.json();
+      console.log("LLM Text Response:", data);
+  
+      if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+        return data.choices[0].message.content.trim();
+      }
+      return "Could not get a formatted response from the assistant.";
+    } catch (error) {
+      console.error("Error getting formatted text response from LLM:", error);
+      return "There was an error processing your request with the AI assistant.";
+    }
+  };
+  
+  // Helper function to format keys/column names for display
+const formatDisplayKey = (key) => {
+  if (!key) return '';
+  // Replace underscores with spaces and capitalize the first letter of each word
+  return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+};
+
+// Function to determine how to render results based on their structure and content
+// This function will be simplified or removed, as llmTextResponse will be primary.
+// For now, let's keep a simplified table/single value display as a fallback
+// if llmTextResponse is empty.
+const renderFallbackResults = (results) => {
+  if (!results || results.length === 0 || !results[0] || typeof results[0] !== 'object') {
+    return <Text style={styles.resultsEmptyText}>No raw data to display.</Text>;
+  }
+  const firstRow = results[0];
+  const columnNames = Object.keys(firstRow);
+  const numRows = results.length;
+  const numCols = columnNames.length;
+
+  // Scenario 1: Single value result (e.g., SUM, COUNT, AVG)
+  if (numRows === 1 && numCols === 1) {
+    const key = columnNames[0];
+    const value = firstRow[key];
+    return (
+      <View style={styles.singleResultContainer}>
+        <Text style={styles.singleResultKey}>{formatDisplayKey(key)}</Text>
+        <Text style={styles.singleResultValue}>
+          {typeof value === 'number' ? (key.includes('percent') ? `${value.toFixed(2)}%` : formatCurrency(value)) : String(value)}
+        </Text>
+      </View>
+    );
+  }
+
+  // Scenario 2: Single item with a specific metric (e.g., "biggest gain", "AAPL P&L")
+  if (numRows === 1 && columnNames.includes('ticker') && numCols > 1) {
+    const ticker = firstRow.ticker;
+    // Find the primary metric value (excluding ticker) - take the first non-ticker column
+    let metricKey = '';
+    let metricValue;
+    for (const col of columnNames) {
+      if (col !== 'ticker') {
+        metricKey = col;
+        metricValue = firstRow[col];
+        break; // Take the first non-ticker column found
+      }
+    } // Fallback to table if single item heuristic doesn't find a metric
+    if (metricKey) { // Ensure a metric column was found
+        return (
+          <View style={styles.singleResultContainer}>
+            <Text style={styles.singleResultKey}>{`${ticker} - ${formatDisplayKey(metricKey)}`}</Text>
+            <Text style={styles.singleResultValue}>
+              {typeof metricValue === 'number' ? (metricKey.includes('percent') ? `${metricValue.toFixed(2)}%` : formatCurrency(metricValue)) : String(metricValue)}
+            </Text>
+          </View>
+        );
+    }
+  }
+
+
+  // Scenario 3: Default to table for multiple rows or multiple columns not fitting above patterns
+  return (
+    <View style={styles.resultsTable}>
+      <View style={styles.resultsRowHeader}>
+        {columnNames.map((key) => (
+          <Text key={key} style={styles.resultsCellHeader}>
+            {formatDisplayKey(key)}
+          </Text>
+        ))}
+      </View>
+      {results.map((row, rowIndex) => (
+        <View key={rowIndex} style={styles.resultsRow}>
+          {Object.values(row).map((value, cellIndex) => {
+             const currentColumnKey = columnNames[cellIndex]; // Get the key for the current cell's column
+             return (
+              <Text key={cellIndex} style={styles.resultsCell}>
+                {/* Format numbers to 2 decimal places for table, special for percent */}
+                {typeof value === 'number'
+                  ? (currentColumnKey.includes('percent') ? `${value.toFixed(2)}%` : value.toFixed(2))
+                  : value === null || value === undefined
+                  ? ''
+                  : String(value)}
+              </Text>
+            );
+          })}
+        </View>
+      ))}
+    </View>
+  );
+};
+  // --- End of renderDynamicResults ---
 
   // --- Main Render ---
   // Calculate layout and gain/loss *after* checking loading/error states
@@ -388,14 +729,18 @@ const PortfolioGraph = () => {
   };
   const decoratorValues = getDecoratorValues();
 
-  console.log('Render - showIndicator:', showIndicator); // <<< LOG ADDED
+  //console.log('Render - showIndicator:', showIndicator); // <<< LOG ADDED
 
   return (
     <TouchableWithoutFeedback onPress={() => {
         console.log('TouchableWithoutFeedback: onPress triggered'); // <<< LOG ADDED (showIndicator) {
         hideInteraction();
       }}>
-      <View style={styles.container}>
+      {/* Replace View with ScrollView */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollViewContent}
+        keyboardShouldPersistTaps="handled">
         {/* Header section */}
         <View style={styles.valueDisplayContainer}>
           <Animated.View style={{ opacity: fadeAnim }} key={selectedPoint?.index ?? 'initial'}>
@@ -512,17 +857,62 @@ const PortfolioGraph = () => {
               <Text style={styles.emptySubText}>Portfolio snapshots are generated daily</Text>
           </View>
         )}
-      </View>
+
+        <View style={styles.queryBarContainer}>
+            <TextInput
+                style={styles.queryInput}
+                placeholder="Ask a question about your portfolio..."
+                value={query}
+                onChangeText={setQuery}
+            />
+            <TouchableOpacity onPress={handleQuerySubmit}>
+                <Text style={styles.queryButtonText}>Submit</Text>
+            </TouchableOpacity>
+        </View>
+        {/* --- Query Results Section --- */}
+        {lastExecutedQuery && ( // Only show if a query was executed
+          <View style={styles.resultsContainer}>
+            <View style={styles.resultsHeader}>
+                <Text style={styles.resultsTitle}>Results for: "{lastExecutedQuery}"</Text>
+                <TouchableOpacity onPress={() => { setQueryResults(null); setLastExecutedQuery(''); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    <Text style={styles.resultsClearButton}>Clear</Text>
+                </TouchableOpacity>
+            </View>
+
+            {isLoading && !queryResults && ( // Show loading specifically for results fetch
+                <ActivityIndicator style={{ marginVertical: 20 }} size="small" color="#1565C0" />
+            )}
+
+            {error && !queryResults && ( // Show error if fetch failed
+                <Text style={[styles.errorText, { marginVertical: 10 }]}>{error}</Text>
+            )}
+            {/* Display LLM Formatted Text Response if available */}
+            {llmTextResponse ? (
+                <Text style={styles.llmTextResponse}>{llmTextResponse}</Text>
+            ) : queryResults && queryResults.length === 0 && !isLoading ? ( // Handle empty results if no LLM response         
+                <Text style={styles.resultsEmptyText}>No matching records found.</Text>
+              ) : queryResults && queryResults.length > 0 && !isLoading ? ( // Fallback to raw results if no LLM response
+                renderFallbackResults(queryResults)
+            ) : null}
+            
+              </View>
+            )}
+         
+      </ScrollView>
     </TouchableWithoutFeedback>
   );
 };
 
 const styles = StyleSheet.create({
   // (Keep existing styles, but add decorator styles)
-  container: {
+  scrollView: { // Style for the ScrollView itself
     flex: 1,
     backgroundColor: 'white',
+  },
+  scrollViewContent: { // Style for the content inside the ScrollView
+    flexGrow: 1, // Ensures content can grow and enable scrolling
     paddingTop: 16,
+    paddingBottom: 20, // Add some padding at the bottom
   },
   centered: {
     flex: 1,
@@ -638,7 +1028,6 @@ const styles = StyleSheet.create({
   // Styles for Decorator elements
   decoratorLine: {
     position: 'absolute',
-    top: CHART_MARGIN_VERTICAL,
     bottom: CHART_MARGIN_VERTICAL,
     width: 2,
     backgroundColor: '#1976D2', // Modern blue
@@ -659,6 +1048,91 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  queryBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: 'white',
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  queryInput: {
+    flex: 1,
+    padding: 10,
+  },
+  queryButtonText: {
+    color: '#1565C0',
+    fontWeight: 'bold',
+  },
+    // Styles for Query Results
+    resultsContainer: {
+      marginTop: 15,
+      marginHorizontal: 10,
+      padding: 10,
+      backgroundColor: '#f9f9f9',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#eee',
+    },
+    resultsHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 10,
+    },
+    resultsTitle: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: '#333',
+      flex: 1, // Allow text to wrap
+      marginRight: 10,
+    },
+    resultsClearButton: {
+      fontSize: 13,
+      color: '#1565C0',
+      fontWeight: '500',
+    },
+    resultsEmptyText: {
+      fontSize: 14,
+      color: '#666',
+      textAlign: 'center',
+      paddingVertical: 15,
+    },
+    resultsTable: {
+      // Basic table structure
+    },
+    resultsRow: {
+      flexDirection: 'row',
+      borderBottomWidth: 1,
+      borderBottomColor: '#eee',
+      paddingVertical: 8,
+    },
+    resultsRowHeader: {
+      flexDirection: 'row',
+      borderBottomWidth: 2,
+      borderBottomColor: '#ddd',
+      paddingBottom: 8,
+      marginBottom: 5,
+      backgroundColor: '#f0f0f0', // Slight background for header
+    },
+    resultsCell: {
+      flex: 1, // Distribute space equally - adjust if needed
+      fontSize: 12,
+      paddingHorizontal: 4, // Add some spacing
+      color: '#444',
+    },
+    resultsCellHeader: {
+      flex: 1,
+      fontSize: 12,
+      fontWeight: 'bold',
+      paddingHorizontal: 4,
+      color: '#111',
+      textTransform: 'capitalize', // Nicer header text
+    },
+    llmTextResponse: {
+      fontSize: 15,
+      lineHeight: 22,
+      color: '#333',
+      paddingVertical: 10,
+    },
 });
-
-export default PortfolioGraph;

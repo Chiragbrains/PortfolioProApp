@@ -19,7 +19,7 @@ import {
 
 // --- Import Components ---
 import AddStockForm from './AddStockForm';
-import PortfolioGraph from './PortfolioGraph';
+import { PortfolioGraph } from './PortfolioGraph';
 import { useSupabaseConfig } from './SupabaseConfigContext';
 
 // --- Helper Functions ---
@@ -1438,13 +1438,13 @@ const newStyles = StyleSheet.create({
         backgroundColor: '#FAFBFC',
     },
     accountHeaderLeft: { // New style for left content
-        flex: 10, // Allow left side to take up remaining space
+        flex: 100, // Allow left side to take up remaining space
         flexShrink: 1, // Allow shrinking if needed
-        marginRight: 10, // Space between left and middle
+        marginRight: 1, // Space between left and middle
         alignItems: 'flex-start', // Align text left
     },
     accountHeaderMiddle: { // New style for middle content
-        width: 1050, // Give the middle section a fixed width (adjust as needed)
+        width: 400, // Give the middle section a fixed width (adjust as needed)
         alignItems: 'center', // Center value and P&L vertically
     },
     accountHeaderRight: { // New style for right content

@@ -418,76 +418,85 @@ Examples:
 - User: "what is my biggest gain?" -> SQL: SELECT ticker, pnl_dollar FROM portfolio_summary ORDER BY pnl_dollar DESC LIMIT 1
 - User: "what is the total value of my portfolio?" -> SQL: SELECT SUM(market_value) FROM portfolio_summary
 `;
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${GROQ_API_KEY}`, // Use the Groq key from environment variables
-        },
-        body: JSON.stringify({
-          model: "llama3-8b-8192", // Or another model available on Groq like mixtral-8x7b-32768
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: userQuery }
-            ]
-        }),
-    });
+    try {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${GROQ_API_KEY}`,
+            },
+            body: JSON.stringify({
+                model: "llama3-8b-8192",
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userQuery }
+                ],
+                temperature: 0.7,
+                max_tokens: 500,
+            }),
+        });
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error("Groq API Error Body:", errorBody);
-      throw new Error(`Groq API error: ${response.status} ${response.statusText}`);
-    }
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error("Groq API Error Status:", response.status);
+            console.error("Groq API Error Response:", errorText);
+            throw new Error(`Failed to process query (Status ${response.status}). Please try again.`);
+        }
 
-    const data = await response.json();
-    console.log("Groq API Response:", data);
+        let data;
+        try {
+            data = await response.json();
+        } catch (jsonError) {
+            console.error("Failed to parse Groq API response:", jsonError);
+            throw new Error("Failed to process the response. Please try again.");
+        }
 
-    // Extract the SQL query from the response
-    if (data.choices && data.choices.length > 0 && data.choices[0].message) {
-        const rawContent = data.choices[0].message.content;
-        let extractedSql = null;
-        
-        // 1. Check for exact refusal string first
-        if (rawContent === 'QUERY_UNANSWERABLE') {
-          return 'QUERY_UNANSWERABLE';
-      }
-        // 2. Try regex to find SELECT statements within markdown blocks
-        const sqlRegex = /```(?:sql)?\s*(SELECT[\s\S]*?)(?:;)?\s*```|^(SELECT[\s\S]*?)(?:;)?$/im;
-        const match = rawContent.match(sqlRegex);
-
-        if (match) {
-            // Prefer the captured group within backticks (match[1]) or the standalone query (match[2])
-            extractedSql = (match[1] || match[2] || '').trim();
-          } else {
-            // 3. If regex fails, check for "SQL:" prefix (case-insensitive)
-            let potentialSql = rawContent;
-            if (potentialSql.toUpperCase().startsWith('SQL:')) {
-                potentialSql = potentialSql.substring(4).trim();
+        if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+            const rawContent = data.choices[0].message.content;
+            let extractedSql = null;
+            
+            // 1. Check for exact refusal string first
+            if (rawContent === 'QUERY_UNANSWERABLE') {
+                return 'QUERY_UNANSWERABLE';
             }
 
-            // 4. Check if the remaining string looks like a SELECT query
-            if (potentialSql.toUpperCase().startsWith('SELECT')) {
-                extractedSql = potentialSql;
+            // 2. Try regex to find SELECT statements within markdown blocks
+            const sqlRegex = /```(?:sql)?\s*(SELECT[\s\S]*?)(?:;)?\s*```|^(SELECT[\s\S]*?)(?:;)?$/im;
+            const match = rawContent.match(sqlRegex);
+
+            if (match) {
+                // Prefer the captured group within backticks (match[1]) or the standalone query (match[2])
+                extractedSql = (match[1] || match[2] || '').trim();
+            } else {
+                // 3. If regex fails, check for "SQL:" prefix (case-insensitive)
+                let potentialSql = rawContent;
+                if (potentialSql.toUpperCase().startsWith('SQL:')) {
+                    potentialSql = potentialSql.substring(4).trim();
+                }
+
+                // 4. Check if the remaining string looks like a SELECT query
+                if (potentialSql.toUpperCase().startsWith('SELECT')) {
+                    extractedSql = potentialSql;
+                }
             }
-        }  
-        // 5. Clean trailing semicolon from whatever was extracted
-        if (extractedSql && extractedSql.endsWith(';')) {
-          extractedSql = extractedSql.slice(0, -1).trim(); // Trim again after slice
-      }
-      // 6. Final validation
-        if (extractedSql && extractedSql.toUpperCase().startsWith('SELECT')) {
-             return extractedSql; // Return the extracted and cleaned query
-        } else if (rawContent.trim() === 'QUERY_UNANSWERABLE') {
-             // Handle the specific refusal string separately
-             return 'QUERY_UNANSWERABLE';
+
+            // 5. Clean trailing semicolon from whatever was extracted
+            if (extractedSql && extractedSql.endsWith(';')) {
+                extractedSql = extractedSql.slice(0, -1).trim();
+            }
+
+            // 6. Final validation
+            if (extractedSql && extractedSql.toUpperCase().startsWith('SELECT')) {
+                return extractedSql;
+            } else if (rawContent.trim() === 'QUERY_UNANSWERABLE') {
+                return 'QUERY_UNANSWERABLE';
+            }
         }
-        else {
-          console.warn("LLM response did not contain a valid SELECT query or refusal:", originalContent); // Log original
-          return null;
-        }
-    } else {
         console.error("Unexpected response structure from Groq API:", data);
-        throw new Error("Failed to parse SQL query from Groq response.");
+        throw new Error("Failed to generate a valid SQL query. Please try rephrasing your question.");
+    } catch (error) {
+        console.error("Error in interpretQuery:", error);
+        throw new Error(`Failed to process your query: ${error.message}`);
     }
   };
 
@@ -559,13 +568,17 @@ Examples:
     // Remove the slice and use all results
     const safeUserQuery = String(originalUserQuery || '');
   
+    // Defensive check for databaseResults before stringifying for the prompt
+    // Also, limit the size of the results sent to the LLM to prevent overly large payloads.
+    const resultsSampleForLLM = Array.isArray(databaseResults) ? databaseResults.slice(0, 10) : []; // Send up to 10 rows
+
     console.log("Requesting formatted text response from LLM...");
     try {
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Authorization': `Bearer ${GROQ_API_KEY}`, // Ensure GROQ_API_KEY is correctly imported and available
         },
         body: JSON.stringify({
           model: "llama3-8b-8192",
@@ -582,7 +595,7 @@ Be direct and clear in your response. Mention all relevant results in your respo
             { 
               role: "user", 
               content: `Question: "${safeUserQuery}"
-Database Results: ${JSON.stringify(databaseResults, null, 2)}`
+Database Results (sample of up to 10 rows): ${JSON.stringify(resultsSampleForLLM, null, 2)}`
             }
           ],
         }),

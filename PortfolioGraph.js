@@ -347,7 +347,7 @@ export const PortfolioGraph = () => {
       return;
     }
 
-    // Reset states
+    // Clear old state before starting new query
     setIsLoading(true);
     setError(null);
     setQueryResults(null);
@@ -355,49 +355,59 @@ export const PortfolioGraph = () => {
     setLlmTextResponse('');
 
     try {
+      // Validate Supabase client and connection
       if (!supabaseClient) {
         throw new Error("Database connection not available");
       }
 
-      // Add connection check
+      // Test database connection first
       try {
-        const { error: connectionTestError } = await supabaseClient
-          .from('portfolio_summary')
-          .select('ticker')
-          .limit(1);
-        
-        if (connectionTestError) {
-          throw new Error('Database connection test failed');
-        }
+        await supabaseClient.from('portfolio_summary').select('ticker', { count: 'exact', head: true });
       } catch (connectionError) {
         console.error("Connection test failed:", connectionError);
-        throw new Error('Unable to connect to database. Please check your connection.');
+        throw new Error('Unable to connect to database. Please check your internet connection.');
       }
 
-      const sqlQuery = await interpretQuery(query);
+      // Process query with retries for mobile
+      let retries = 2;
+      let sqlQuery = null;
+      let queryError = null;
+
+      while (retries > 0 && !sqlQuery) {
+        try {
+          sqlQuery = await interpretQuery(query);
+          break;
+        } catch (error) {
+          console.error(`Query attempt failed (${retries} retries left):`, error);
+          queryError = error;
+          retries--;
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s between retries
+        }
+      }
+
+      if (!sqlQuery && queryError) {
+        throw queryError;
+      }
+
       console.log("Generated SQL:", sqlQuery);
 
       if (sqlQuery && sqlQuery !== 'QUERY_UNANSWERABLE') {
         const results = await fetchFromSupabase(sqlQuery);
-        if (results) {
-          setQueryResults(results);
-          setLastExecutedQuery(query);
-          console.log("Query executed successfully, results stored in state.");
-          
-          if (results.length > 0) {
-            try {
-              const formattedText = await getFormattedTextResponseFromLLM(query, results);
-              if (formattedText) {
-                setLlmTextResponse(formattedText);
-              }
-            } catch (llmError) {
-              console.error("LLM formatting failed:", llmError);
-              // Don't throw - fall back to raw results
+        setQueryResults(results);
+        setLastExecutedQuery(query);
+        
+        if (results && results.length > 0) {
+          try {
+            const formattedText = await getFormattedTextResponseFromLLM(query, results);
+            if (formattedText) {
+              setLlmTextResponse(formattedText);
             }
+          } catch (llmError) {
+            console.error("LLM formatting failed:", llmError);
+            // Continue with raw results if formatting fails
           }
         }
       } else if (sqlQuery === 'QUERY_UNANSWERABLE') {
-        console.log("Query cannot be answered with the provided schema.");
         setError("I can't answer that question based on the available portfolio data.");
       } else {
         throw new Error("Failed to generate a valid query. Please try rephrasing your question.");
@@ -445,28 +455,20 @@ Examples:
 - User: "what is the total value of my portfolio?" -> SQL: SELECT SUM(market_value) FROM portfolio_summary
 `;
     try {
-        const fetchWithTimeout = (url, options, timeout = 30000) => {
-            return Promise.race([
-                fetch(url, {
-                    ...options,
-                    headers: {
-                        ...options.headers,
-                        'Accept': 'application/json',
-                        'Cache-Control': 'no-cache',
-                        'Pragma': 'no-cache'
-                    }
-                }),
-                new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Request timed out')), timeout)
-                )
-            ]);
-        };
+        // Add mobile-specific fetch configuration
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-        const response = await fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
+            signal: controller.signal,
             headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
                 'Authorization': `Bearer ${GROQ_API_KEY}`,
+                'User-Agent': 'Mozilla/5.0' // Add user agent for mobile compatibility
             },
             body: JSON.stringify({
                 model: "llama3-8b-8192",
@@ -475,23 +477,30 @@ Examples:
                     { role: "user", content: userQuery }
                 ],
                 temperature: 0.7,
-                max_tokens: 500,
-            }),
+                max_tokens: 500
+            })
         });
 
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
-            const errorText = await response.text();
-            console.error("Groq API Error Status:", response.status);
-            console.error("Groq API Error Response:", errorText);
-            throw new Error(`Failed to process query (Status ${response.status}). Please try again.`);
+            const errorText = await response.text().catch(() => 'Failed to get error details');
+            console.error("Groq API Error Details:", {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText
+            });
+            throw new Error(`API request failed (${response.status}). Please try again.`);
         }
 
         let data;
         try {
-            data = await response.json();
-        } catch (jsonError) {
-            console.error("Failed to parse Groq API response:", jsonError);
-            throw new Error("Failed to process the response. Please try again.");
+            const text = await response.text();
+            data = JSON.parse(text);
+        } catch (parseError) {
+            console.error("JSON Parse Error:", parseError);
+            console.error("Raw Response:", await response.text().catch(() => 'Failed to get raw response'));
+            throw new Error("Failed to parse the API response. Please try again.");
         }
 
         if (data.choices && data.choices.length > 0 && data.choices[0].message) {
@@ -549,33 +558,47 @@ Examples:
         throw new Error("Supabase client not available.");
       }
       if (!sqlQuery || typeof sqlQuery !== 'string' || !sqlQuery.trim().toUpperCase().startsWith('SELECT')) {
-          throw new Error("Invalid or non-SELECT SQL query provided.");
+        throw new Error("Invalid or non-SELECT SQL query provided.");
       }
   
       console.log("Executing Supabase query via RPC:", sqlQuery);
       try {
-        // Assumes you have a PostgreSQL function `execute_sql(sql text)` in Supabase
-        // that executes the SQL and returns JSON. See notes below.
-        const { data, error } = await supabaseClient.rpc('execute_sql', { sql_query: sqlQuery }); // Match the parameter name in the PG function
+        // Add timeout for mobile environments
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Query timed out')), 30000);
+        });
+  
+        const queryPromise = supabaseClient.rpc('execute_sql', { 
+          sql_query: sqlQuery 
+        });
+  
+        const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
   
         if (error) {
           console.error("Supabase RPC error:", error);
-          // Try to provide a more specific error message if possible
-          let errorMessage = `Database query failed: ${error.message}`;
-          if (error.details) errorMessage += ` Details: ${error.details}`;
-          if (error.hint) errorMessage += ` Hint: ${error.hint}`;
+          
+          // Check for specific mobile Safari/Chrome errors
+          if (error.message?.includes('NetworkError') || error.message?.includes('network') || error.message?.includes('Failed to fetch')) {
+            throw new Error('Network connection error. Please check your internet connection and try again.');
+          }
+          
+          // Handle other errors with specific messages
+          let errorMessage = 'Database query failed';
+          if (error.message) errorMessage += `: ${error.message}`;
+          if (error.details) errorMessage += ` (${error.details})`;
+          if (error.hint) errorMessage += `. ${error.hint}`;
           throw new Error(errorMessage);
         }
   
         console.log("Supabase query results:", data);
-        // The RPC function returns a JSON array (or null/empty array)
-        return data || []; // Return data or an empty array if data is null/undefined
+        return data || [];
   
       } catch (rpcError) {
-          // Catch errors from the rpc call itself or the ones we threw
-          console.error("Error during Supabase RPC call:", rpcError);
-          // Re-throw the error so handleQuerySubmit can catch it
-          throw rpcError;
+        console.error("Error during Supabase RPC call:", rpcError);
+        if (rpcError.message?.includes('timed out')) {
+          throw new Error('The query took too long to respond. Please try again.');
+        }
+        throw new Error(`Query failed: ${rpcError.message}`);
       }
     };
     // *** END NEW FUNCTION ***
@@ -666,21 +689,7 @@ Database Results (sample of up to 10 rows): ${JSON.stringify(resultsSampleForLLM
   // Helper function to format keys/column names for display
 const formatDisplayKey = (key) => {
   if (!key) return '';
-  // Replace underscores with spaces and capitalize the first letter of each word
-  return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-};
-
-// Function to determine how to render results based on their structure and content
-// This function will be simplified or removed, as llmTextResponse will be primary.
-// For now, let's keep a simplified table/single value display as a fallback
-// if llmTextResponse is empty.
-const renderFallbackResults = (results) => {
-  if (!results || results.length === 0 || !results[0] || typeof results[0] !== 'object') {
-    return <Text style={styles.resultsEmptyText}>No raw data to display.</Text>;
-  }
-  const firstRow = results[0];
-  const columnNames = Object.keys(firstRow);
-  const numRows = results.length;
+  // Replace underscores with spaces and capitalize the
   const numCols = columnNames.length;
 
   // Scenario 1: Single value result (e.g., SUM, COUNT, AVG)

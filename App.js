@@ -1440,11 +1440,11 @@ const newStyles = StyleSheet.create({
     accountHeaderLeft: { // New style for left content
          flex: 1, // Allow left side to take up remaining space
     //     flexShrink: -1, // Allow shrinking if needed
-         marginRight: 10, // Space between left and middle
+         marginRight: 25, // Space between left and middle
     //     alignItems: 'flex-start', // Align text left
      },
      accountHeaderMiddle: { // New style for middle content
-         width: 200, // Give the middle section a fixed width (adjust as needed)
+         width: 100, // Give the middle section a fixed width (adjust as needed)
         // alignItems: 'center', // Center value and P&L vertically
      },
     accountHeaderRight: { // New style for right content

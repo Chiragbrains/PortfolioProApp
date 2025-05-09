@@ -11,7 +11,8 @@ import {
   Platform,
   TouchableWithoutFeedback,
   TextInput,
-  ScrollView, // Import ScrollView
+  ScrollView,
+  KeyboardAvoidingView, // Add KeyboardAvoidingView
 } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { fetchPortfolioSummary, fetchInvestmentAccounts, addInvestmentAccount, updateInvestmentAccount, deleteInvestmentAccount, bulkImportInvestmentAccounts, truncateInvestmentAccounts, refreshPortfolioDataIfNeeded, fetchPortfolioHistory } from './stocksService'; // Update import statement at the top to include fetchPortfolioHistory
@@ -23,15 +24,15 @@ import {
 import { useSupabaseConfig } from './SupabaseConfigContext'; // Import hook
 import { GROQ_API_KEY } from '@env'; // Import the Groq key from .env
 
-const screenWidth = Dimensions.get('window').width;
+const { width: initialScreenWidth, height: initialScreenHeight } = Dimensions.get('window');
 
 // --- Chart Configuration Constants ---
 // Adjusted for no Y-axis labels
-const CHART_PADDING_LEFT = 10; // Reduced padding now that labels are gone
-const CHART_PADDING_RIGHT = 16;
+const CHART_PADDING_LEFT = Platform.OS === 'ios' ? 15 : 10; // Increased padding for iOS
+const CHART_PADDING_RIGHT = Platform.OS === 'ios' ? 20 : 16;
 const Y_AXIS_LABEL_WIDTH = 0; // Set to 0 as labels are hidden
-const CHART_MARGIN_VERTICAL = 10;
-const CHART_HEIGHT = 220;
+const CHART_MARGIN_VERTICAL = Platform.OS === 'ios' ? 15 : 10;
+const CHART_HEIGHT = Math.min(initialScreenHeight * 0.3, 220); // Make height responsive
 // --- End Chart Configuration Constants ---
 
 export const PortfolioGraph = () => {
@@ -40,7 +41,7 @@ export const PortfolioGraph = () => {
   const [error, setError] = useState(null);
   const [timeRange, setTimeRange] = useState(90);
   const [selectedPoint, setSelectedPoint] = useState(null);
-  const [chartWidth, setChartWidth] = useState(screenWidth);
+  const [chartWidth, setChartWidth] = useState(initialScreenWidth);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [showIndicator, setShowIndicator] = useState(true); // CHANGED: Set default to true to show the indicator
   const indicatorX = useRef(new Animated.Value(0)).current;
@@ -787,187 +788,196 @@ const renderFallbackResults = (results) => {
   //console.log('Render - showIndicator:', showIndicator); // <<< LOG ADDED
 
   return (
-    <TouchableWithoutFeedback onPress={() => {
-        console.log('TouchableWithoutFeedback: onPress triggered'); // <<< LOG ADDED (showIndicator) {
-        hideInteraction();
-      }}>
-      {/* Replace View with ScrollView */}
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollViewContent}
-        keyboardShouldPersistTaps="handled">
-        {/* Header section */}
-        <View style={styles.valueDisplayContainer}>
-          <Animated.View style={{ opacity: fadeAnim }} key={selectedPoint?.index ?? 'initial'}>
-            {selectedPoint ? (
-              <>
-                <Text style={styles.valueLabel}>Portfolio Value</Text>
-                <Text style={styles.valueAmount}>
-                  {formatCurrency(selectedPoint.value)}
-                </Text>
-                <Text style={styles.valueDate}>
-                  {formatDate(selectedPoint.date)}
-                </Text>
-                {selectedPoint.index > 0 && (gainLoss.value !== 0 || gainLoss.percent !== 0) && (
-                  <Text style={[styles.gainLossText, getGainLossColor(gainLoss.value)]}>
-                    {gainLoss.value >= 0 ? '+' : ''}{formatCurrency(gainLoss.value)} ({gainLoss.percent >= 0 ? '+' : ''}{gainLoss.percent.toFixed(2)}%)
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1 }}
+    >
+      <TouchableWithoutFeedback onPress={hideInteraction}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollViewContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {/* Header section */}
+          <View style={styles.valueDisplayContainer}>
+            <Animated.View style={{ opacity: fadeAnim }} key={selectedPoint?.index ?? 'initial'}>
+              {selectedPoint ? (
+                <>
+                  <Text style={styles.valueLabel}>Portfolio Value</Text>
+                  <Text style={styles.valueAmount}>
+                    {formatCurrency(selectedPoint.value)}
                   </Text>
-                )}
-              </>
-            ) : (
-              // Placeholder when no point is selected (e.g., after error or no data)
-              <>
-                <Text style={styles.valueLabel}>Portfolio Value</Text>
-                <Text style={styles.valueAmount}>--</Text>
-                <Text style={styles.valueDate}>{historyData ? 'Select a point' : 'No data available'}</Text>
-              </>
-            )}
-          </Animated.View>
-        </View>
-
-        {/* Time range selector */}
-        <View style={styles.timeRangeSelector}>
-          {/* Buttons call handleTimeRangeChange */}
-          <TouchableOpacity onPress={() => handleTimeRangeChange(30)} style={[styles.timeButton, timeRange === 30 && styles.activeTimeButton]}><Text style={[styles.timeButtonText, timeRange === 30 && styles.activeTimeButtonText]}>1M</Text></TouchableOpacity>
-          <TouchableOpacity onPress={() => handleTimeRangeChange(90)} style={[styles.timeButton, timeRange === 90 && styles.activeTimeButton]}><Text style={[styles.timeButtonText, timeRange === 90 && styles.activeTimeButtonText]}>3M</Text></TouchableOpacity>
-          <TouchableOpacity onPress={() => handleTimeRangeChange(180)} style={[styles.timeButton, timeRange === 180 && styles.activeTimeButton]}><Text style={[styles.timeButtonText, timeRange === 180 && styles.activeTimeButtonText]}>6M</Text></TouchableOpacity>
-          <TouchableOpacity onPress={() => handleTimeRangeChange(365)} style={[styles.timeButton, timeRange === 365 && styles.activeTimeButton]}><Text style={[styles.timeButtonText, timeRange === 365 && styles.activeTimeButtonText]}>1Y</Text></TouchableOpacity>
-          <TouchableOpacity onPress={() => handleTimeRangeChange(730)} style={[styles.timeButton, timeRange === 730 && styles.activeTimeButton]}><Text style={[styles.timeButtonText, timeRange === 730 && styles.activeTimeButtonText]}>2Y</Text></TouchableOpacity>
-        </View>
-
-        {/* Chart section */}
-        {/* Conditionally render chart or empty state based on historyData */}
-        {historyData && historyData.datasets && historyData.datasets[0].data.length > 0 ? (
-          <GestureDetector gesture={composedGesture}>
-            <View style={styles.chartOuterContainer}>
-              <LineChart
-                data={historyData} // Use the state variable directly
-                width={effectiveChartWidth} // Use calculated width
-                height={CHART_HEIGHT}
-                // yAxisLabel="$" // REMOVED
-                yAxisSuffix=""
-                withInnerLines={false}
-                withOuterLines={false}
-                withVerticalLines={false}
-                withHorizontalLines={true} // Keep horizontal grid lines
-                // withHorizontalLabels={false} // Alternative way to hide labels, but formatYLabel is safer
-                horizontalLabelRotation={0}
-                chartConfig={{
-                  backgroundColor: 'white',
-                  backgroundGradientFrom: 'white',
-                  backgroundGradientTo: 'white',
-                  decimalPlaces: 0,
-                  color: (opacity = 1) => `rgba(21, 101, 192, ${opacity})`,
-                  labelColor: (opacity = 0.6) => `rgba(102, 102, 102, ${opacity})`, // X-axis label color
-                  propsForBackgroundLines: {
-                    strokeDasharray: '',
-                    strokeWidth: 0.5,
-                    stroke: '#ebebeb',
-                  },
-                  propsForDots: {
-                    r: showIndicator ? "0" : "3",
-                    strokeWidth: "0",
-                  },
-                  propsForLabels: { // Style for X-axis labels
-                    fontSize: 10,
-                    fontWeight: '400',
-                  },
-                  formatYLabel: () => '', // HIDE Y-Axis Labels
-                  yAxisLabelWidth: Y_AXIS_LABEL_WIDTH, // Use constant (0)
-                  style: {
-                       marginVertical: 0,
-                  }
-                }}
-                bezier
-                style={styles.chart} // Contains paddingLeft, paddingRight
-                decorator={() => {
-                  if (!selectedPoint) return null;
-                  const { pointY } = decoratorValues;
-                  return (
-                    <View style={StyleSheet.absoluteFill} pointerEvents="none">
-                      {/* Vertical bar */}
-                      <Animated.View
-                        style={[
-                          styles.decoratorLine,
-                          { left: indicatorX }
-                        ]}
-                      />
-                      {/* Dot */}
-                      <Animated.View
-                        style={[
-                          styles.decoratorDot,
-                          { top: pointY - 7, left: Animated.subtract(indicatorX, 7) }
-                        ]}
-                      />
-                    </View>
-                  );
-                }}
-              />
-            </View>
-          </GestureDetector>
-        ) : (
-          // Show empty state if historyData is null or empty after loading/error checks
-          <View style={[styles.chartOuterContainer, styles.centered, { height: CHART_HEIGHT }]}>
-              <Text style={styles.emptyText}>No historical data for this period</Text>
-              <Text style={styles.emptySubText}>Portfolio snapshots are generated daily</Text>
+                  <Text style={styles.valueDate}>
+                    {formatDate(selectedPoint.date)}
+                  </Text>
+                  {selectedPoint.index > 0 && (gainLoss.value !== 0 || gainLoss.percent !== 0) && (
+                    <Text style={[styles.gainLossText, getGainLossColor(gainLoss.value)]}>
+                      {gainLoss.value >= 0 ? '+' : ''}{formatCurrency(gainLoss.value)} ({gainLoss.percent >= 0 ? '+' : ''}{gainLoss.percent.toFixed(2)}%)
+                    </Text>
+                  )}
+                </>
+              ) : (
+                // Placeholder when no point is selected (e.g., after error or no data)
+                <>
+                  <Text style={styles.valueLabel}>Portfolio Value</Text>
+                  <Text style={styles.valueAmount}>--</Text>
+                  <Text style={styles.valueDate}>{historyData ? 'Select a point' : 'No data available'}</Text>
+                </>
+              )}
+            </Animated.View>
           </View>
-        )}
 
-        <View style={styles.queryBarContainer}>
-            <TextInput
-                style={styles.queryInput}
-                placeholder="Ask a question about your portfolio..."
-                value={query}
-                onChangeText={setQuery}
-            />
-            <TouchableOpacity onPress={handleQuerySubmit}>
-                <Text style={styles.queryButtonText}>Submit</Text>
-            </TouchableOpacity>
-        </View>
-        {/* --- Query Results Section --- */}
-        {lastExecutedQuery && ( // Only show if a query was executed
-          <View style={styles.resultsContainer}>
-            <View style={styles.resultsHeader}>
-                <Text style={styles.resultsTitle}>Results for: "{lastExecutedQuery}"</Text>
-                <TouchableOpacity onPress={() => { setQueryResults(null); setLastExecutedQuery(''); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                    <Text style={styles.resultsClearButton}>Clear</Text>
-                </TouchableOpacity>
-            </View>
+          {/* Time range selector */}
+          <View style={styles.timeRangeSelector}>
+            {/* Buttons call handleTimeRangeChange */}
+            <TouchableOpacity onPress={() => handleTimeRangeChange(30)} style={[styles.timeButton, timeRange === 30 && styles.activeTimeButton]}><Text style={[styles.timeButtonText, timeRange === 30 && styles.activeTimeButtonText]}>1M</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => handleTimeRangeChange(90)} style={[styles.timeButton, timeRange === 90 && styles.activeTimeButton]}><Text style={[styles.timeButtonText, timeRange === 90 && styles.activeTimeButtonText]}>3M</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => handleTimeRangeChange(180)} style={[styles.timeButton, timeRange === 180 && styles.activeTimeButton]}><Text style={[styles.timeButtonText, timeRange === 180 && styles.activeTimeButtonText]}>6M</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => handleTimeRangeChange(365)} style={[styles.timeButton, timeRange === 365 && styles.activeTimeButton]}><Text style={[styles.timeButtonText, timeRange === 365 && styles.activeTimeButtonText]}>1Y</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => handleTimeRangeChange(730)} style={[styles.timeButton, timeRange === 730 && styles.activeTimeButton]}><Text style={[styles.timeButtonText, timeRange === 730 && styles.activeTimeButtonText]}>2Y</Text></TouchableOpacity>
+          </View>
 
-            {isLoading && !queryResults && ( // Show loading specifically for results fetch
-                <ActivityIndicator style={{ marginVertical: 20 }} size="small" color="#1565C0" />
-            )}
-
-            {error && !queryResults && ( // Show error if fetch failed
-                <Text style={[styles.errorText, { marginVertical: 10 }]}>{error}</Text>
-            )}
-            {/* Display LLM Formatted Text Response if available */}
-            {llmTextResponse ? (
-                <Text style={styles.llmTextResponse}>{llmTextResponse}</Text>
-            ) : queryResults && queryResults.length === 0 && !isLoading ? ( // Handle empty results if no LLM response         
-                <Text style={styles.resultsEmptyText}>No matching records found.</Text>
-              ) : queryResults && queryResults.length > 0 && !isLoading ? ( // Fallback to raw results if no LLM response
-                renderFallbackResults(queryResults)
-            ) : null}
-            
+          {/* Chart section */}
+          {/* Conditionally render chart or empty state based on historyData */}
+          {historyData && historyData.datasets && historyData.datasets[0].data.length > 0 ? (
+            <GestureDetector gesture={composedGesture}>
+              <View style={styles.chartOuterContainer}>
+                <LineChart
+                  data={historyData} // Use the state variable directly
+                  width={effectiveChartWidth} // Use calculated width
+                  height={CHART_HEIGHT}
+                  // yAxisLabel="$" // REMOVED
+                  yAxisSuffix=""
+                  withInnerLines={false}
+                  withOuterLines={false}
+                  withVerticalLines={false}
+                  withHorizontalLines={true} // Keep horizontal grid lines
+                  // withHorizontalLabels={false} // Alternative way to hide labels, but formatYLabel is safer
+                  horizontalLabelRotation={0}
+                  chartConfig={{
+                    backgroundColor: 'white',
+                    backgroundGradientFrom: 'white',
+                    backgroundGradientTo: 'white',
+                    decimalPlaces: 0,
+                    color: (opacity = 1) => `rgba(21, 101, 192, ${opacity})`,
+                    labelColor: (opacity = 0.6) => `rgba(102, 102, 102, ${opacity})`, // X-axis label color
+                    propsForBackgroundLines: {
+                      strokeDasharray: '',
+                      strokeWidth: 0.5,
+                      stroke: '#ebebeb',
+                    },
+                    propsForDots: {
+                      r: showIndicator ? "0" : "3",
+                      strokeWidth: "0",
+                    },
+                    propsForLabels: { // Style for X-axis labels
+                      fontSize: 10,
+                      fontWeight: '400',
+                    },
+                    formatYLabel: () => '', // HIDE Y-Axis Labels
+                    yAxisLabelWidth: Y_AXIS_LABEL_WIDTH, // Use constant (0)
+                    style: {
+                         marginVertical: 0,
+                    }
+                  }}
+                  bezier
+                  style={styles.chart} // Contains paddingLeft, paddingRight
+                  decorator={() => {
+                    if (!selectedPoint) return null;
+                    const { pointY } = decoratorValues;
+                    return (
+                      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+                        {/* Vertical bar */}
+                        <Animated.View
+                          style={[
+                            styles.decoratorLine,
+                            { left: indicatorX }
+                          ]}
+                        />
+                        {/* Dot */}
+                        <Animated.View
+                          style={[
+                            styles.decoratorDot,
+                            { top: pointY - 7, left: Animated.subtract(indicatorX, 7) }
+                          ]}
+                        />
+                      </View>
+                    );
+                  }}
+                />
               </View>
-            )}
-         
-      </ScrollView>
-    </TouchableWithoutFeedback>
+            </GestureDetector>
+          ) : (
+            // Show empty state if historyData is null or empty after loading/error checks
+            <View style={[styles.chartOuterContainer, styles.centered, { height: CHART_HEIGHT }]}>
+                <Text style={styles.emptyText}>No historical data for this period</Text>
+                <Text style={styles.emptySubText}>Portfolio snapshots are generated daily</Text>
+            </View>
+          )}
+
+          <View style={styles.queryBarContainer}>
+            <TextInput
+              style={styles.queryInput}
+              placeholder="Ask a question about your portfolio..."
+              value={query}
+              onChangeText={setQuery}
+              maxFontSizeMultiplier={1.0} // Prevent text scaling
+              onSubmitEditing={handleQuerySubmit}
+              returnKeyType="search"
+            />
+            <TouchableOpacity 
+              onPress={handleQuerySubmit}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={styles.queryButtonText}>Submit</Text>
+            </TouchableOpacity>
+          </View>
+
+          {lastExecutedQuery && (
+            <View style={styles.resultsContainer}>
+              <View style={styles.resultsHeader}>
+                  <Text style={styles.resultsTitle}>Results for: "{lastExecutedQuery}"</Text>
+                  <TouchableOpacity onPress={() => { setQueryResults(null); setLastExecutedQuery(''); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                      <Text style={styles.resultsClearButton}>Clear</Text>
+                  </TouchableOpacity>
+              </View>
+
+              {isLoading && !queryResults && ( // Show loading specifically for results fetch
+                  <ActivityIndicator style={{ marginVertical: 20 }} size="small" color="#1565C0" />
+              )}
+
+              {error && !queryResults && ( // Show error if fetch failed
+                  <Text style={[styles.errorText, { marginVertical: 10 }]}>{error}</Text>
+              )}
+              {/* Display LLM Formatted Text Response if available */}
+              {llmTextResponse ? (
+                  <Text style={styles.llmTextResponse}>{llmTextResponse}</Text>
+              ) : queryResults && queryResults.length === 0 && !isLoading ? ( // Handle empty results if no LLM response         
+                  <Text style={styles.resultsEmptyText}>No matching records found.</Text>
+                ) : queryResults && queryResults.length > 0 && !isLoading ? ( // Fallback to raw results if no LLM response
+                  renderFallbackResults(queryResults)
+              ) : null}
+              
+                </View>
+              )}
+           
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
   // (Keep existing styles, but add decorator styles)
-  scrollView: { // Style for the ScrollView itself
+  scrollView: {
     flex: 1,
     backgroundColor: 'white',
   },
-  scrollViewContent: { // Style for the content inside the ScrollView
-    flexGrow: 1, // Ensures content can grow and enable scrolling
+  scrollViewContent: {
+    flexGrow: 1,
     paddingTop: 16,
-    paddingBottom: 20, // Add some padding at the bottom
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20, // More padding for iOS
   },
   centered: {
     flex: 1,
@@ -1004,11 +1014,12 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   chartOuterContainer: {
-    // backgroundColor: '#fafafa', // Optional: for debugging layout
+    width: '100%',
+    paddingHorizontal: Platform.OS === 'ios' ? 5 : 0, // Add horizontal padding for iOS
   },
   chart: {
     paddingRight: CHART_PADDING_RIGHT,
-    paddingLeft: CHART_PADDING_LEFT, // Use updated constant
+    paddingLeft: CHART_PADDING_LEFT,
   },
   timeRangeSelector: {
     flexDirection: 'row',
@@ -1106,18 +1117,23 @@ const styles = StyleSheet.create({
   queryBarContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 10,
+    padding: Platform.OS === 'ios' ? 12 : 10,
     backgroundColor: 'white',
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
+    maxHeight: Platform.OS === 'ios' ? 60 : 'auto', // Limit height on iOS
   },
   queryInput: {
     flex: 1,
-    padding: 10,
+    padding: Platform.OS === 'ios' ? 12 : 10,
+    fontSize: Platform.OS === 'ios' ? 16 : 14, // Larger font for iOS
+    maxHeight: Platform.OS === 'ios' ? 40 : 'auto', // Limit input height on iOS
   },
   queryButtonText: {
     color: '#1565C0',
     fontWeight: 'bold',
+    fontSize: Platform.OS === 'ios' ? 16 : 14, // Larger font for iOS
+    paddingHorizontal: Platform.OS === 'ios' ? 12 : 8,
   },
     // Styles for Query Results
     resultsContainer: {

@@ -1444,7 +1444,7 @@ const newStyles = StyleSheet.create({
     //     alignItems: 'flex-start', // Align text left
      },
      accountHeaderMiddle: { // New style for middle content
-         width: 100, // Give the middle section a fixed width (adjust as needed)
+         width: 250, // Give the middle section a fixed width (adjust as needed)
         // alignItems: 'center', // Center value and P&L vertically
      },
     accountHeaderRight: { // New style for right content

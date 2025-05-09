@@ -455,100 +455,95 @@ Examples:
 - User: "what is the total value of my portfolio?" -> SQL: SELECT SUM(market_value) FROM portfolio_summary
 `;
     try {
-        // Add mobile-specific fetch configuration
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        // Wrap fetch in try-catch with better error handling for mobile
+        const makeRequest = async (retries = 2) => {
+            while (retries > 0) {
+                try {
+                    const controller = new AbortController();
+                    const timeout = setTimeout(() => {
+                        controller.abort();
+                    }, 20000); // 20 second timeout
 
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            signal: controller.signal,
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache',
-                'Authorization': `Bearer ${GROQ_API_KEY}`,
-                'User-Agent': 'Mozilla/5.0' // Add user agent for mobile compatibility
-            },
-            body: JSON.stringify({
-                model: "llama3-8b-8192",
-                messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: userQuery }
-                ],
-                temperature: 0.7,
-                max_tokens: 500
-            })
-        });
+                    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        signal: controller.signal,
+                        mode: 'cors',
+                        headers: {
+                            'Accept': '*/*',
+                            'Accept-Encoding': 'gzip, deflate, br',
+                            'Accept-Language': 'en-US,en;q=0.9',
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${GROQ_API_KEY}`,
+                            'Cache-Control': 'no-cache',
+                            'Pragma': 'no-cache',
+                            'Origin': 'https://portfolio-pro-app.vercel.app',
+                            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'
+                        },
+                        body: JSON.stringify({
+                            model: "llama3-8b-8192",
+                            messages: [
+                                { role: "system", content: systemPrompt },
+                                { role: "user", content: userQuery }
+                            ],
+                            temperature: 0.5,
+                            max_tokens: 500,
+                            stream: false
+                        })
+                    });
 
-        clearTimeout(timeoutId);
+                    clearTimeout(timeout);
 
-        if (!response.ok) {
-            const errorText = await response.text().catch(() => 'Failed to get error details');
-            console.error("Groq API Error Details:", {
-                status: response.status,
-                statusText: response.statusText,
-                error: errorText
-            });
-            throw new Error(`API request failed (${response.status}). Please try again.`);
-        }
+                    if (!response.ok) {
+                        const errorText = await response.text().catch(() => 'Failed to get error details');
+                        throw new Error(`API request failed (${response.status}): ${errorText}`);
+                    }
 
-        let data;
-        try {
-            const text = await response.text();
-            data = JSON.parse(text);
-        } catch (parseError) {
-            console.error("JSON Parse Error:", parseError);
-            console.error("Raw Response:", await response.text().catch(() => 'Failed to get raw response'));
-            throw new Error("Failed to parse the API response. Please try again.");
-        }
-
-        if (data.choices && data.choices.length > 0 && data.choices[0].message) {
-            const rawContent = data.choices[0].message.content;
-            let extractedSql = null;
-            
-            // 1. Check for exact refusal string first
-            if (rawContent === 'QUERY_UNANSWERABLE') {
-                return 'QUERY_UNANSWERABLE';
+                    const text = await response.text();
+                    return JSON.parse(text);
+                } catch (error) {
+                    if (retries === 1) throw error; // Last retry, propagate error
+                    console.warn(`Retry ${3 - retries}/2 failed:`, error);
+                    retries--;
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s between retries
+                }
             }
+        };
 
-            // 2. Try regex to find SELECT statements within markdown blocks
+        const data = await makeRequest();
+
+        // Process response
+        if (data?.choices?.[0]?.message?.content) {
+            const rawContent = data.choices[0].message.content;
+            if (rawContent === 'QUERY_UNANSWERABLE') return 'QUERY_UNANSWERABLE';
+
+            // Extract SQL using regex
             const sqlRegex = /```(?:sql)?\s*(SELECT[\s\S]*?)(?:;)?\s*```|^(SELECT[\s\S]*?)(?:;)?$/im;
             const match = rawContent.match(sqlRegex);
-
+            
+            let extractedSql = null;
             if (match) {
-                // Prefer the captured group within backticks (match[1]) or the standalone query (match[2])
                 extractedSql = (match[1] || match[2] || '').trim();
-            } else {
-                // 3. If regex fails, check for "SQL:" prefix (case-insensitive)
-                let potentialSql = rawContent;
-                if (potentialSql.toUpperCase().startsWith('SQL:')) {
-                    potentialSql = potentialSql.substring(4).trim();
-                }
-
-                // 4. Check if the remaining string looks like a SELECT query
-                if (potentialSql.toUpperCase().startsWith('SELECT')) {
-                    extractedSql = potentialSql;
+            } else if (rawContent.toUpperCase().includes('SELECT')) {
+                // Fallback: try to extract anything that looks like a SELECT query
+                const selectRegex = /SELECT\s+[^;]*/i;
+                const selectMatch = rawContent.match(selectRegex);
+                if (selectMatch) {
+                    extractedSql = selectMatch[0].trim();
                 }
             }
 
-            // 5. Clean trailing semicolon from whatever was extracted
-            if (extractedSql && extractedSql.endsWith(';')) {
-                extractedSql = extractedSql.slice(0, -1).trim();
-            }
-
-            // 6. Final validation
-            if (extractedSql && extractedSql.toUpperCase().startsWith('SELECT')) {
-                return extractedSql;
-            } else if (rawContent.trim() === 'QUERY_UNANSWERABLE') {
-                return 'QUERY_UNANSWERABLE';
+            if (extractedSql?.toUpperCase().startsWith('SELECT')) {
+                return extractedSql.endsWith(';') ? extractedSql.slice(0, -1).trim() : extractedSql;
             }
         }
-        console.error("Unexpected response structure from Groq API:", data);
-        throw new Error("Failed to generate a valid SQL query. Please try rephrasing your question.");
+
+        throw new Error('Could not extract a valid SQL query from the response');
     } catch (error) {
-        console.error("Error in interpretQuery:", error);
-        throw new Error(`Failed to process your query: ${error.message}`);
+        console.error('Error in interpretQuery:', error);
+        if (error.name === 'AbortError') {
+            throw new Error('The request timed out. Please try again.');
+        }
+        throw new Error(`Failed to process query: ${error.message}`);
     }
   };
 

@@ -340,49 +340,74 @@ export const PortfolioGraph = () => {
   };
 
   const handleQuerySubmit = async () => {
-    console.log ("Question from user: ", query);
+    console.log("Question from user:", query);
     if (!query.trim()) {
       console.log("Query is empty, skipping.");
-      // Optionally show a message to the user
       return;
-  }
-  setIsLoading(true); // Indicate processing
-  setError(null);
-  setQueryResults(null); // Clear previous results
-  setLastExecutedQuery(''); // Clear previous query text
-  setLlmTextResponse(''); // Reset LLM text response
-  try {
+    }
+
+    // Reset states
+    setIsLoading(true);
+    setError(null);
+    setQueryResults(null);
+    setLastExecutedQuery('');
+    setLlmTextResponse('');
+
+    try {
+      if (!supabaseClient) {
+        throw new Error("Database connection not available");
+      }
+
+      // Add connection check
+      try {
+        const { error: connectionTestError } = await supabaseClient
+          .from('portfolio_summary')
+          .select('ticker')
+          .limit(1);
+        
+        if (connectionTestError) {
+          throw new Error('Database connection test failed');
+        }
+      } catch (connectionError) {
+        console.error("Connection test failed:", connectionError);
+        throw new Error('Unable to connect to database. Please check your connection.');
+      }
+
       const sqlQuery = await interpretQuery(query);
       console.log("Generated SQL:", sqlQuery);
 
       if (sqlQuery && sqlQuery !== 'QUERY_UNANSWERABLE') {
-          const results = await fetchFromSupabase(sqlQuery); // Execute the query returned by interpretQuery
-          setQueryResults(results); // Store results in state
-          setLastExecutedQuery(query); // Store the user's query text
+        const results = await fetchFromSupabase(sqlQuery);
+        if (results) {
+          setQueryResults(results);
+          setLastExecutedQuery(query);
           console.log("Query executed successfully, results stored in state.");
-          // New: Get formatted text response from LLM using the results
-          if (results && results.length > 0) {
-            const formattedText = await getFormattedTextResponseFromLLM(query, results);
-            if (formattedText) {
+          
+          if (results.length > 0) {
+            try {
+              const formattedText = await getFormattedTextResponseFromLLM(query, results);
+              if (formattedText) {
                 setLlmTextResponse(formattedText);
-                // If we get a good text response, we might not need to show the raw queryResults table.
+              }
+            } catch (llmError) {
+              console.error("LLM formatting failed:", llmError);
+              // Don't throw - fall back to raw results
             }
           }
+        }
       } else if (sqlQuery === 'QUERY_UNANSWERABLE') {
-           console.log("Query cannot be answered with the provided schema.");
-           alert("Sorry, I can't answer that question based on the available portfolio data.");
-           setError("Query cannot be answered with the provided schema."); // Set error state
-          } else if (sqlQuery !== null) { // Only throw if LLM returned something other than null or UNANSWERABLE
-              throw new Error("LLM did not return a valid SQL query.");
+        console.log("Query cannot be answered with the provided schema.");
+        setError("I can't answer that question based on the available portfolio data.");
+      } else {
+        throw new Error("Failed to generate a valid query. Please try rephrasing your question.");
       }
-  } catch (error) {
+    } catch (error) {
       console.error("Error processing query:", error);
-      setError(`Failed to process query: ${error.message}`);
-      alert(`Error: ${error.message}`); // Show error to user
-  } finally {
-      setIsLoading(false); // Stop loading indicator
-  }
-};
+      setError(error.message || "Failed to process query. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const interpretQuery = async (userQuery) => {
     const systemPrompt = `You are an expert SQL generator. Your task is to translate natural language questions into SQL SELECT queries for a specific table.
@@ -419,7 +444,24 @@ Examples:
 - User: "what is the total value of my portfolio?" -> SQL: SELECT SUM(market_value) FROM portfolio_summary
 `;
     try {
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        const fetchWithTimeout = (url, options, timeout = 30000) => {
+            return Promise.race([
+                fetch(url, {
+                    ...options,
+                    headers: {
+                        ...options.headers,
+                        'Accept': 'application/json',
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    }
+                }),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Request timed out')), timeout)
+                )
+            ]);
+        };
+
+        const response = await fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

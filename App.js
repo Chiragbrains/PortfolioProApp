@@ -1,13 +1,14 @@
 // App.js - Rewritten UI Structure
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import {
-    Modal, StyleSheet, Text, View, TouchableOpacity, ScrollView, SafeAreaView,
+import { // Added TouchableWithoutFeedback
+    Modal, StyleSheet, Text, View, TouchableOpacity, ScrollView, SafeAreaView, Pressable,
     ActivityIndicator, Alert, Platform, TextInput, Dimensions, FlatList // Added FlatList
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
+import { GestureHandlerRootView } from 'react-native-gesture-handler'; // Import GestureHandlerRootView
 import ConnectionErrorModal from './ConnectionErrorModal'; // Assuming this exists
 
 // --- Import Service Functions ---
@@ -1174,7 +1175,7 @@ export default function App() {
                 style={appStyles.chatToggleButton}
                 onPress={() => setIsChatboxVisible(true)}
                 >
-                <Text style={appStyles.chatToggleButtonText}>Chat AI</Text>
+                <Text style={appStyles.chatToggleButtonText}>AI</Text>
                 </TouchableOpacity>
             )}
 
@@ -1187,12 +1188,16 @@ export default function App() {
                 setIsChatboxVisible(false);
                 }}
             >
-                {/* This View acts as the modal backdrop and positions the chatbox */}
-                <View style={appStyles.modalOverlay}>
-                <GeneralChatbox onClose={() => setIsChatboxVisible(false)} />
-                </View>
+                <GestureHandlerRootView style={{ flex: 1 }}>
+                    {/* Pressable for the overlay to close the modal */}
+                    <Pressable onPress={() => setIsChatboxVisible(false)} style={{ flex: 1 }}>
+                        <View style={appStyles.modalOverlay}>
+                            {/* GeneralChatbox will handle its own touch consumption */}
+                            <GeneralChatbox onClose={() => setIsChatboxVisible(false)} />
+                        </View>
+                    </Pressable>
+                </GestureHandlerRootView>
             </Modal>
-                    
 
             {/* --- Modals & Menu (Keep existing components/logic) --- */}
             <MenuDrawer
@@ -1782,6 +1787,7 @@ const appStyles = StyleSheet.create({
     },
     modalOverlay: {
       flex: 1,
+      alignItems: 'center',
       justifyContent: 'flex-end', // Positions chatbox at the bottom
       backgroundColor: 'rgba(0,0,0,0.3)', // Semi-transparent backdrop
     },

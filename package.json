@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "react-native start",
+    "start": "expo start",
     "build": "npx expo export",
     "android": "expo start --android",
     "ios": "expo start --ios",
@@ -43,7 +43,8 @@
     "yahoo-finance2": "^2.13.3"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0"
+    "@babel/core": "^7.20.0",
+    "@react-native-community/cli": "^18.0.0"
   },
   "engines": {
     "node": ">=16"

@@ -21,6 +21,7 @@ import {
 import AddStockForm from './AddStockForm';
 import { PortfolioGraph } from './PortfolioGraph';
 import { useSupabaseConfig } from './SupabaseConfigContext';
+import GeneralChatbox from './GeneralChatbox'; // Import the new component
 
 // --- Helper Functions ---
 const formatNumber = (num) => {
@@ -396,6 +397,8 @@ export default function App() {
     };
 
     const { supabaseClient, clearConfig } = useSupabaseConfig();
+
+    const [isChatboxVisible, setIsChatboxVisible] = useState(false);
 
     // --- Logic & Handlers (Keep ALL existing functions: loadData, handleConnectionErrorOk, handleFileSelect, processExcelData, handleBulkImport, handleAddStock, handleEditStock, handleUpdateStock, handleClearAllData, confirmClearAllData, handleDisconnect, confirmDisconnect, validateData, openAddStockModal) ---
     // --- Data Loading (Ensure it calls without forcing) ---
@@ -1165,6 +1168,31 @@ export default function App() {
                     <Text style={newStyles.fabText}>+</Text>
                 </TouchableOpacity>
             )}
+            {/* Chatbox Toggle Button - Position it globally */}
+            {!isChatboxVisible && ( // Only show button if chatbox is not visible
+                <TouchableOpacity
+                style={appStyles.chatToggleButton}
+                onPress={() => setIsChatboxVisible(true)}
+                >
+                <Text style={appStyles.chatToggleButtonText}>Chat AI</Text>
+                </TouchableOpacity>
+            )}
+
+            {/* Chatbox Modal */}
+            <Modal
+                animationType="slide" // Or "fade"
+                transparent={true}
+                visible={isChatboxVisible}
+                onRequestClose={() => {
+                setIsChatboxVisible(false);
+                }}
+            >
+                {/* This View acts as the modal backdrop and positions the chatbox */}
+                <View style={appStyles.modalOverlay}>
+                <GeneralChatbox onClose={() => setIsChatboxVisible(false)} />
+                </View>
+            </Modal>
+                    
 
             {/* --- Modals & Menu (Keep existing components/logic) --- */}
             <MenuDrawer
@@ -1440,11 +1468,11 @@ const newStyles = StyleSheet.create({
     accountHeaderLeft: { // New style for left content
          flex: 1, // Allow left side to take up remaining space
     //     flexShrink: -1, // Allow shrinking if needed
-         marginRight: 25, // Space between left and middle
+         marginRight: 20, // Space between left and middle
     //     alignItems: 'flex-start', // Align text left
      },
      accountHeaderMiddle: { // New style for middle content
-         width: 250, // Give the middle section a fixed width (adjust as needed)
+         width: 300, // Give the middle section a fixed width (adjust as needed)
         // alignItems: 'center', // Center value and P&L vertically
      },
     accountHeaderRight: { // New style for right content
@@ -1730,3 +1758,31 @@ const newStyles = StyleSheet.create({
         fontStyle: 'italic',
     },
 });
+
+const appStyles = StyleSheet.create({
+    chatToggleButton: {
+      position: 'absolute',
+      bottom: Platform.OS === 'ios' ? 40 : 20, // Adjust for safe areas if needed
+      right: 20,
+      backgroundColor: '#007AFF', // Example button color
+      paddingVertical: 12,
+      paddingHorizontal: 18,
+      borderRadius: 30,
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 3.84,
+      zIndex: 1000, // Ensure it's on top
+    },
+    chatToggleButtonText: {
+      color: 'white',
+      fontWeight: 'bold',
+      fontSize: 16,
+    },
+    modalOverlay: {
+      flex: 1,
+      justifyContent: 'flex-end', // Positions chatbox at the bottom
+      backgroundColor: 'rgba(0,0,0,0.3)', // Semi-transparent backdrop
+    },
+  });

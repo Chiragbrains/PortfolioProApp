@@ -373,9 +373,14 @@ export const PortfolioGraph = () => {
       let sqlQuery = null;
       let queryError = null;
 
+      // Log more detailed platform info for debugging
+      console.log(`Device: ${Platform.OS}, Version: ${Platform.Version}, Platform: ${JSON.stringify(Platform.constants || {})}`);
+
       while (retries > 0 && !sqlQuery) {
         try {
+          console.log(`Attempting to interpret query (attempt ${3 - retries}/2)...`);
           sqlQuery = await interpretQuery(query);
+          //console.log("Successfully generated SQL:", sqlQuery);
           break;
         } catch (error) {
           console.error(`Query attempt failed (${retries} retries left):`, error);
@@ -389,7 +394,7 @@ export const PortfolioGraph = () => {
         throw queryError;
       }
 
-      console.log("Generated SQL:", sqlQuery);
+      //console.log("Generated SQL:", sqlQuery);
 
       if (sqlQuery && sqlQuery !== 'QUERY_UNANSWERABLE') {
         const results = await fetchFromSupabase(sqlQuery);
@@ -414,7 +419,18 @@ export const PortfolioGraph = () => {
       }
     } catch (error) {
       console.error("Error processing query:", error);
-      setError(error.message || "Failed to process query. Please try again.");
+      // Detect specific mobile-related error messages
+      if (error.message && (
+          error.message.includes('network') || 
+          error.message.includes('fetch') || 
+          error.message.includes('SSL') ||
+          error.message.includes('CORS') ||
+          error.message.includes('timed out')
+      )) {
+        setError("Network error connecting to AI service. Please check your connection and try again.");
+      } else {
+        setError(error.message || "Failed to process query. Please try again.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -446,71 +462,105 @@ Constraints:
 5. When asked about "how many" shares or a specific quantity of a stock, select the 'total_quantity' column. Do not use COUNT(*).
 6. For queries about losses or worst performing stocks, use ORDER BY pnl_dollar ASC (ascending order to show biggest losses first).
 7. For queries about gains or best performing stocks, use ORDER BY pnl_dollar DESC (descending order to show biggest gains first).
+8. When a user refers to a specific company:
+   a. If the input is clearly a ticker symbol (e.g., "AAPL", "MSFT"), use an exact match on the \`ticker\` column (e.g., \`WHERE ticker = 'AAPL'\`). Ensure the ticker in the SQL is uppercase.
+   b. If the input is a company name (e.g., "Apple", "Microsoft Corporation"), try to determine its common stock ticker symbol and use an exact match on the \`ticker\` column with that symbol in uppercase.
+   c. As a fallback, if you cannot confidently determine the ticker from a company name, or if the name is partial, you may use \`company_name LIKE '%User Provided Name%'\`.
+9. If the user asks for information about multiple distinct companies or tickers in a single question, combine the conditions into a single SQL query using the \`OR\` operator.
+10. For queries about assets that are "breaking even", "close to breaking even", or "almost breaking even", use the following SQL pattern:
+    SELECT * FROM portfolio_summary WHERE type != 'cash'  AND ABS(pnl_percent) = (SELECT MIN(ABS(pnl_percent)) FROM portfolio_summary WHERE type != 'cash')
 
 Examples:
 - User: "how many apple stocks do I have?" -> SQL: SELECT total_quantity FROM portfolio_summary WHERE ticker = 'AAPL'
+- User: "info on Google" -> SQL: SELECT * FROM portfolio_summary WHERE ticker = 'GOOGL'  (or 'GOOG' if that's more common in your data)
+- User: "details for MSFT" -> SQL: SELECT * FROM portfolio_summary WHERE ticker = 'MSFT'
+- User: "market value of International Business Machines" -> SQL: SELECT market_value FROM portfolio_summary WHERE ticker = 'IBM'
+- User: "show me amd and nvidia" -> SQL: SELECT * FROM portfolio_summary WHERE ticker = 'AMD' OR ticker = 'NVDA'
+- User: "data for Apple and Microsoft" -> SQL: SELECT * FROM portfolio_summary WHERE ticker = 'AAPL' OR ticker = 'MSFT'
 - User: "what is my biggest loss?" -> SQL: SELECT ticker, pnl_dollar FROM portfolio_summary ORDER BY pnl_dollar ASC LIMIT 1
-- User: "which stock am I losing the most on?" -> SQL: SELECT ticker, pnl_dollar FROM portfolio_summary ORDER BY pnl_dollar ASC LIMIT 1
 - User: "what is my biggest gain?" -> SQL: SELECT ticker, pnl_dollar FROM portfolio_summary ORDER BY pnl_dollar DESC LIMIT 1
-- User: "what is the total value of my portfolio?" -> SQL: SELECT SUM(market_value) FROM portfolio_summary
+- User: "total value of my portfolio" -> SQL: SELECT SUM(market_value) FROM portfolio_summary
+- User: "what assets am I almost breaking even on?" -> SQL: SELECT * FROM portfolio_summary WHERE type != 'cash' AND ABS(pnl_percent) = (SELECT MIN(ABS(pnl_percent)) FROM portfolio_summary WHERE type != 'cash')
 `;
     try {
-        // Wrap fetch in try-catch with better error handling for mobile
-        const makeRequest = async (retries = 2) => {
-            while (retries > 0) {
-                try {
-                    const controller = new AbortController();
-                    const timeout = setTimeout(() => {
-                        controller.abort();
-                    }, 20000); // 20 second timeout
-
-                    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                        method: 'POST',
-                        signal: controller.signal,
-                        mode: 'cors',
-                        headers: {
-                            'Accept': '*/*',
-                            'Accept-Encoding': 'gzip, deflate, br',
-                            'Accept-Language': 'en-US,en;q=0.9',
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${GROQ_API_KEY}`,
-                            'Cache-Control': 'no-cache',
-                            'Pragma': 'no-cache',
-                            'Origin': 'https://portfolio-pro-app.vercel.app',
-                            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'
-                        },
-                        body: JSON.stringify({
-                            model: "llama3-8b-8192",
-                            messages: [
-                                { role: "system", content: systemPrompt },
-                                { role: "user", content: userQuery }
-                            ],
-                            temperature: 0.5,
-                            max_tokens: 500,
-                            stream: false
-                        })
-                    });
-
-                    clearTimeout(timeout);
-
-                    if (!response.ok) {
-                        const errorText = await response.text().catch(() => 'Failed to get error details');
-                        throw new Error(`API request failed (${response.status}): ${errorText}`);
+        //console.log("Starting interpretQuery with XMLHttpRequest...");
+        
+        // Use XMLHttpRequest instead of fetch for better iOS compatibility
+        const makeRequest = () => {
+            return new Promise((resolve, reject) => {
+                // Create the payload
+                const payload = {
+                    model: "meta-llama/llama-4-scout-17b-16e-instruct", // Updated model
+                    messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: userQuery }
+                    ],
+                    temperature: 0.5,
+                    max_tokens: 500
+                };
+                
+                // Create XMLHttpRequest
+                const xhr = new XMLHttpRequest();
+                
+                // Set timeout
+                xhr.timeout = 20000; // 20 seconds
+                
+                xhr.onreadystatechange = function() {
+                    if (this.readyState === 4) {
+                        if (this.status >= 200 && this.status < 300) {
+                            try {
+                                const response = JSON.parse(this.responseText);
+                                console.log("XMLHttpRequest successful");
+                                resolve(response);
+                            } catch (e) {
+                                console.error("Error parsing JSON response:", e);
+                                reject(new Error(`Failed to parse response: ${this.responseText.substring(0, 100)}...`));
+                            }
+                        } else {
+                            console.error("XMLHttpRequest failed with status:", this.status);
+                            reject(new Error(`Request failed with status ${this.status}: ${this.responseText}`));
+                        }
                     }
-
-                    const text = await response.text();
-                    return JSON.parse(text);
+                };
+                
+                xhr.ontimeout = function() {
+                    console.error("XMLHttpRequest timed out");
+                    reject(new Error("Request timed out after 20 seconds"));
+                };
+                
+                xhr.onerror = function(e) {
+                    console.error("XMLHttpRequest error:", e);
+                    reject(new Error("Network error occurred"));
+                };
+                
+                // Open connection and set headers
+                xhr.open("POST", "https://api.groq.com/openai/v1/chat/completions", true);
+                xhr.setRequestHeader("Content-Type", "application/json");
+                xhr.setRequestHeader("Authorization", `Bearer ${GROQ_API_KEY}`);
+                
+                // Send the request
+                xhr.send(JSON.stringify(payload));
+                console.log("XMLHttpRequest sent");
+            });
+        };
+        
+        // Function to make request with retries
+        const makeRequestWithRetries = async (retries = 2) => {
+            while (retries >= 0) {
+                try {
+                    return await makeRequest();
                 } catch (error) {
-                    if (retries === 1) throw error; // Last retry, propagate error
-                    console.warn(`Retry ${3 - retries}/2 failed:`, error);
+                    console.error(`Request attempt failed (${retries} retries left):`, error);
+                    if (retries === 0) throw error;
                     retries--;
-                    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s between retries
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }
         };
-
-        const data = await makeRequest();
-
+        
+        // Make the request
+        const data = await makeRequestWithRetries();
+        
         // Process response
         if (data?.choices?.[0]?.message?.content) {
             const rawContent = data.choices[0].message.content;
@@ -540,7 +590,7 @@ Examples:
         throw new Error('Could not extract a valid SQL query from the response');
     } catch (error) {
         console.error('Error in interpretQuery:', error);
-        if (error.name === 'AbortError') {
+        if (error.message.includes('timed out')) {
             throw new Error('The request timed out. Please try again.');
         }
         throw new Error(`Failed to process query: ${error.message}`);
@@ -626,32 +676,48 @@ Examples:
       return "No data was found to answer your question.";
     }
   
-    // Remove the slice and use all results
     const safeUserQuery = String(originalUserQuery || '');
-  
-    // Defensive check for databaseResults before stringifying for the prompt
-    // Also, limit the size of the results sent to the LLM to prevent overly large payloads.
-    const resultsSampleForLLM = Array.isArray(databaseResults) ? databaseResults.slice(0, 10) : []; // Send up to 10 rows
+    const resultsSampleForLLM = Array.isArray(databaseResults) ? databaseResults.slice(0, 100) : [];
 
     console.log("Requesting formatted text response from LLM...");
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GROQ_API_KEY}`, // Ensure GROQ_API_KEY is correctly imported and available
+          'Authorization': `Bearer ${GROQ_API_KEY}`
         },
         body: JSON.stringify({
-          model: "llama3-8b-8192",
+          model: "meta-llama/llama-4-scout-17b-16e-instruct",
           messages: [
             { 
               role: "system", 
               content: `You are an AI assistant that provides clear and concise natural language answers based on database query results.
 Given a user's question and database results, formulate a helpful text response.
+Your response will be displayed in a mobile app, so keep it readable.
+
+Important formatting rules:
+1. DO NOT use any HTML tags or markdown formatting
+2. DO NOT use <font> tags or any other HTML styling
+3. For P&L values, just write them directly (e.g., "-$1,234.56" or "-12.34%")
+4. The app will automatically color-code negative values in red and positive values in green
+5. Use bullet points by starting each line with an asterisk and space ("* ")
+
 Important notes about the data:
 - For money values, use appropriate currency formatting
 - The pnl_percent and portfolio_percent fields are already in percentage form (e.g., 5.2 means 5.2%), do not multiply by 100
-Be direct and clear in your response. Mention all relevant results in your response.`
+- When showing P&L values, format them as: "-$X,XXX.XX, -XX.XX%" or "$X,XXX.XX, XX.XX%"
+- Do not include column names like "pnl_dollar:" or "pnl_percent:" in the output
+
+Be direct and clear in your response. Mention all relevant results in your response including company name.
+- Display results in a readable and concise format.
+- If you need to list items, start each item on a new line with an asterisk and a space (e.g., "* Item 1").
+- Do NOT use markdown like **bold** or _italics_. Use clear sentence structure for emphasis if needed.
+- If providing a summary or a key takeaway, present it as a simple paragraph.`
             },
             { 
               role: "user", 
@@ -659,8 +725,10 @@ Be direct and clear in your response. Mention all relevant results in your respo
 Database Results (sample of up to 10 rows): ${JSON.stringify(resultsSampleForLLM, null, 2)}`
             }
           ],
-        }),
+        })
       });
+    
+      clearTimeout(timeoutId);
   
       if (!response.ok) {
         const errorBody = await response.text();
@@ -668,34 +736,58 @@ Database Results (sample of up to 10 rows): ${JSON.stringify(resultsSampleForLLM
         throw new Error(`LLM Text Response API error: ${response.status} ${response.statusText}`);
       }
   
-      const data = await response.json();
-      console.log("LLM Text Response:", data);
-  
-      if (data.choices && data.choices.length > 0 && data.choices[0].message) {
-        return data.choices[0].message.content.trim();
+      const rawText = await response.text();
+      try {
+        const data = JSON.parse(rawText);
+        console.log("LLM Text Response:", data);
+        
+        if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+          return data.choices[0].message.content.trim();
+        }
+        return "Could not get a formatted response from the assistant.";
+      } catch (jsonError) {
+        console.error("Failed to parse LLM response JSON:", jsonError);
+        return "There was an error processing the response from the AI assistant.";
       }
-      return "Could not get a formatted response from the assistant.";
     } catch (error) {
       console.error("Error getting formatted text response from LLM:", error);
+      if (error.name === 'AbortError') {
+        return "The request to the AI assistant timed out. Please try again.";
+      }
       return "There was an error processing your request with the AI assistant.";
     }
   };
   
   // Helper function to format keys/column names for display
 const formatDisplayKey = (key) => {
-  if (!key) return '';
-  // Replace underscores with spaces and capitalize the
+  if (!key || typeof key !== 'string') return '';
+  // Replace underscores with spaces and capitalize the first letter of each word
+  return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+};
+
+// Function to render fallback results (table or single value)
+const renderFallbackResults = (results, styles, formatCurrency, getGainLossColor) => {
   const numCols = columnNames.length;
 
   // Scenario 1: Single value result (e.g., SUM, COUNT, AVG)
   if (numRows === 1 && numCols === 1) {
     const key = columnNames[0];
     const value = firstRow[key];
+    console.log(`renderFallbackResults (Single Value): key=${key}, value=${value}, typeof value=${typeof value}`);
+    if (key.toLowerCase().includes('pnl_dollar') || key.toLowerCase().includes('pnl_percent')) {
+      console.log(`renderFallbackResults (Single Value) - P&L Color Style for ${key}:`, getGainLossColor(value));
+    }
     return (
       <View style={styles.singleResultContainer}>
         <Text style={styles.singleResultKey}>{formatDisplayKey(key)}</Text>
         <Text style={styles.singleResultValue}>
-          {typeof value === 'number' ? (key.includes('percent') ? `${value.toFixed(2)}%` : formatCurrency(value)) : String(value)}
+          {typeof value === 'number' 
+            ? (key.toLowerCase().includes('pnl_dollar') 
+                ? <Text style={[styles.valueAmount, getGainLossColor(value)]}>{formatCurrency(value)}</Text> 
+                : (key.toLowerCase().includes('pnl_percent') 
+                    ? <Text style={[styles.valueAmount, getGainLossColor(value)]}>{value.toFixed(2)}%</Text>
+                    : formatCurrency(value))) 
+            : String(value)}
         </Text>
       </View>
     );
@@ -713,19 +805,28 @@ const formatDisplayKey = (key) => {
         metricValue = firstRow[col];
         break; // Take the first non-ticker column found
       }
-    } // Fallback to table if single item heuristic doesn't find a metric
+    }
     if (metricKey) { // Ensure a metric column was found
+        console.log(`renderFallbackResults (Single Item Metric): ticker=${ticker}, metricKey=${metricKey}, metricValue=${metricValue}`);
+        if (metricKey.toLowerCase().includes('pnl_dollar') || metricKey.toLowerCase().includes('pnl_percent')) {
+          console.log(`renderFallbackResults (Single Item Metric) - P&L Color Style for ${metricKey}:`, getGainLossColor(metricValue));
+        }
         return (
           <View style={styles.singleResultContainer}>
-            <Text style={styles.singleResultKey}>{`${ticker} - ${formatDisplayKey(metricKey)}`}</Text>
+            <Text style={styles.singleResultKey}>{`${ticker} - ${formatDisplayKey(metricKey)}`}</Text> 
             <Text style={styles.singleResultValue}>
-              {typeof metricValue === 'number' ? (metricKey.includes('percent') ? `${metricValue.toFixed(2)}%` : formatCurrency(metricValue)) : String(metricValue)}
+              {typeof metricValue === 'number' 
+                ? (metricKey.toLowerCase().includes('pnl_dollar') 
+                    ? <Text style={[styles.valueAmount, getGainLossColor(metricValue)]}>{formatCurrency(metricValue)}</Text> 
+                    : (metricKey.toLowerCase().includes('pnl_percent') 
+                        ? <Text style={[styles.valueAmount, getGainLossColor(metricValue)]}>{metricValue.toFixed(2)}%</Text>
+                        : formatCurrency(metricValue))) 
+                : String(metricValue)}
             </Text>
           </View>
         );
     }
   }
-
 
   // Scenario 3: Default to table for multiple rows or multiple columns not fitting above patterns
   return (
@@ -740,12 +841,21 @@ const formatDisplayKey = (key) => {
       {results.map((row, rowIndex) => (
         <View key={rowIndex} style={styles.resultsRow}>
           {Object.values(row).map((value, cellIndex) => {
-             const currentColumnKey = columnNames[cellIndex]; // Get the key for the current cell's column
+             const currentColumnKey = columnNames[cellIndex];
+             // Log for P&L columns in the table
+             if (currentColumnKey.toLowerCase().includes('pnl_dollar') || currentColumnKey.toLowerCase().includes('pnl_percent')) {
+               console.log(`renderFallbackResults (Table Cell): columnKey=${currentColumnKey}, value=${value}, typeof value=${typeof value}, P&L Color Style:`, getGainLossColor(value));
+             }
              return (
               <Text key={cellIndex} style={styles.resultsCell}>
-                {/* Format numbers to 2 decimal places for table, special for percent */}
                 {typeof value === 'number'
-                  ? (currentColumnKey.includes('percent') ? `${value.toFixed(2)}%` : value.toFixed(2))
+                  ? (currentColumnKey.toLowerCase().includes('pnl_dollar') 
+                      ? <Text style={[styles.valueAmount, getGainLossColor(value)]}>{formatCurrency(value)}</Text>
+                      : (currentColumnKey.toLowerCase().includes('pnl_percent') 
+                          ? <Text style={[styles.valueAmount, getGainLossColor(value)]}>{value.toFixed(2)}%</Text>
+                          : value.toFixed(2)
+                        )
+                    )
                   : value === null || value === undefined
                   ? ''
                   : String(value)}
@@ -956,11 +1066,11 @@ const formatDisplayKey = (key) => {
               )}
               {/* Display LLM Formatted Text Response if available */}
               {llmTextResponse ? (
-                  <Text style={styles.llmTextResponse}>{llmTextResponse}</Text>
+                  <FormattedLLMResponse text={llmTextResponse} />
               ) : queryResults && queryResults.length === 0 && !isLoading ? ( // Handle empty results if no LLM response         
                   <Text style={styles.resultsEmptyText}>No matching records found.</Text>
                 ) : queryResults && queryResults.length > 0 && !isLoading ? ( // Fallback to raw results if no LLM response
-                  renderFallbackResults(queryResults)
+                  renderFallbackResults(queryResults, styles, formatCurrency, getGainLossColor)
               ) : null}
               
                 </View>
@@ -972,6 +1082,56 @@ const formatDisplayKey = (key) => {
   );
 };
 
+// New Component to render formatted LLM text
+const FormattedLLMResponse = ({ text }) => {
+  if (!text) return null;
+
+  const lines = text.split('\n');
+
+  // Helper function to parse and render text with P&L values
+  const renderTextWithPL = (text) => {
+    // Split text by potential P&L values (looking for patterns like -$X,XXX.XX or -XX.XX%)
+    // Only match values that are explicitly P&L related
+    const parts = text.split(/(-\$[\d,]+\.\d+\s*,\s*-\d+\.\d+%|\$[\d,]+\.\d+\s*,\s*\d+\.\d+%)/);
+    
+    return parts.map((part, index) => {
+      // Check if this part is a P&L value (both dollar and percentage together)
+      if (part.match(/^-\$[\d,]+\.\d+\s*,\s*-\d+\.\d+%$/)) {
+        // Negative P&L value - use red
+        return <Text key={index} style={styles.negativeChange}>{part}</Text>;
+      } else if (part.match(/^\$[\d,]+\.\d+\s*,\s*\d+\.\d+%$/)) {
+        // Positive P&L value - use green
+        return <Text key={index} style={styles.positiveChange}>{part}</Text>;
+      } else {
+        // Regular text or other numeric values
+        return <Text key={index}>{part}</Text>;
+      }
+    });
+  };
+
+  return (
+    <View style={styles.llmTextResponseContainer}>
+      {lines.map((line, index) => {
+        line = line.trim();
+        if (line.startsWith('* ')) {
+          return (
+            <View key={index} style={styles.bulletItemContainer}>
+              <Text style={styles.bulletPoint}>•</Text>
+              <Text style={styles.bulletText}>{renderTextWithPL(line.substring(2))}</Text>
+            </View>
+          );
+        } else if (line.length > 0) { // Render non-empty lines as paragraphs
+          return (
+            <Text key={index} style={styles.llmParagraph}>
+              {renderTextWithPL(line)}
+            </Text>
+          );
+        }
+        return null; // Skip empty lines
+      })}
+    </View>
+  );
+};
 const styles = StyleSheet.create({
   // (Keep existing styles, but add decorator styles)
   scrollView: {
@@ -1130,8 +1290,13 @@ const styles = StyleSheet.create({
   queryInput: {
     flex: 1,
     padding: Platform.OS === 'ios' ? 12 : 10,
-    fontSize: Platform.OS === 'ios' ? 16 : 14, // Larger font for iOS
-    maxHeight: Platform.OS === 'ios' ? 40 : 'auto', // Limit input height on iOS
+    fontSize: 16, // Set minimum font size to 16px to prevent zoom
+    maxHeight: Platform.OS === 'ios' ? 40 : 'auto',
+    // Add these properties to prevent zoom
+    ...(Platform.OS === 'ios' ? {
+      transform: [{ scale: 1 }],
+      textAlignVertical: 'center',
+    } : {}),
   },
   queryButtonText: {
     color: '#1565C0',
@@ -1204,10 +1369,33 @@ const styles = StyleSheet.create({
       color: '#111',
       textTransform: 'capitalize', // Nicer header text
     },
-    llmTextResponse: {
+    // Styles for FormattedLLMResponse
+    llmTextResponseContainer: {
+      paddingVertical: 10,
+    },
+    llmParagraph: {
       fontSize: 15,
       lineHeight: 22,
       color: '#333',
-      paddingVertical: 10,
+      marginBottom: 8, // Space between paragraphs
+    },
+    bulletItemContainer: {
+      flexDirection: 'row',
+      alignItems: 'flex-start', // Align items to the start for multi-line bullet text
+      marginBottom: 6,
+      paddingLeft: 10, // Indent bullet items
+    },
+    bulletPoint: {
+      fontSize: 15,
+      lineHeight: 22,
+      color: '#1565C0', // Make bullet point a distinct color
+      marginRight: 8,
+      fontWeight: 'bold',
+    },
+    bulletText: {
+      flex: 1, // Allow text to wrap
+      fontSize: 15,
+      lineHeight: 22,
+      color: '#333',
     },
 });

@@ -24,7 +24,13 @@
       "package": "com.anonymous.StockPortfolioApp"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "viewport": {
+        "width": "device-width",
+        "initial-scale": 1,
+        "maximum-scale": 1,
+        "user-scalable": false
+      }
     },
     "extra": {
       "eas": {

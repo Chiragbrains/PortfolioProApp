@@ -21,7 +21,7 @@ const screenHeight = Dimensions.get('window').height;
 
 const GeneralChatbox = ({ onClose }) => {
   const [messages, setMessages] = useState([
-    { id: '1', text: 'Hello! Type your inquiry regarding your portfolio only.', sender: 'bot' },
+    { id: '1', text: 'Hello! Interact with your Porfolio only.', sender: 'bot' },
   ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -220,15 +220,20 @@ Important notes about the data:
 - When showing P&L values, format them as: "-$X,XXX.XX, -XX.XX%" or "$X,XXX.XX, XX.XX%". (The comma is important for parsing by the display component).
 - Do not include column names like "pnl_dollar:" or "pnl_percent:" in the output.
 
-Be direct and clear in your response. Mention all relevant results in your response including company name.
-- Display results in a readable and concise format.
-- If you need to list items, start each item on a new line with an asterisk and a space (e.g., "* Item 1").
-- Do NOT use markdown like **bold** or _italics_. Use clear sentence structure for emphasis if needed.
-- If providing a summary or a key takeaway, present it as a simple paragraph.`
+Be direct and clear in your response. Mention relevant results, including company names where appropriate.
+
+When presenting information for multiple assets from the query results:
+  - If the information for each asset is brief (e.g., just ticker and P&L), you can list them concisely, for example: 'Here are the P&Ls: Apple (AAPL) is +$100.00, +5.00%; Microsoft (MSFT) is -$50.00, -2.00%.'
+  - If there are several details for each asset, use a clear paragraph or a short, descriptive sentence for each asset. Avoid an exhaustive list of bullet points for every single field of every asset. For example, instead of many bullets, try: "Apple (AAPL) has a market value of $1500.00 and a P&L of +$100.00, +5.00%. Microsoft (MSFT) shows a market value of $2000.00 with a P&L of -$50.00, -2.00%."
+  - Avoid overly repetitive phrasing.
+  - If a user asks for a list (e.g., "list my top 5 holdings"), then using bullet points starting with an asterisk and space ("* ") for each holding is appropriate.
+
+For single asset results or general summaries, a simple paragraph is often best.
+Do NOT use markdown like **bold** or _italics_. Use clear sentence structure for emphasis if needed.`
             },
             { 
               role: "user", 
-              content: `Original Question: "${safeUserQuery}"\n\nDatabase Results (sample of up to 5 rows):\n${JSON.stringify(resultsSampleForLLM, null, 2)}`
+              content: `Original Question: "${safeUserQuery}"\n\nDatabase Results (sample of up to 10 rows):\n${JSON.stringify(resultsSampleForLLM, null, 2)}`
             }
           ],
           temperature: 0.3, // Lower temperature for more deterministic and factual output
@@ -341,18 +346,46 @@ Be direct and clear in your response. Mention all relevant results in your respo
     const lines = text.split('\n');
 
     const renderTextWithPL = (lineText) => {
-      // Regex to find P&L patterns like "$1,234.56, 12.34%" or "-$500.00, -5.00%"
-      // It expects a comma separating the dollar amount and the percentage.
       const pnlRegex = /(-\$?\s*[\d,]+\.\d{2}\s*,\s*-?\s*\d+\.?\d*\s*%|\$?\s*[\d,]+\.\d{2}\s*,\s*\+?\s*\d+\.?\d*\s*%)/g;
-      const parts = lineText.split(pnlRegex);
+      const pnlParts = lineText.split(pnlRegex); // Split by P&L
 
-      return parts.map((part, index) => {
-        if (part && part.match(pnlRegex)) {
-          const isNegative = part.startsWith('-') || part.includes(' -');
-          return <Text key={index} style={isNegative ? portfolioQueryStyles.negativeChange : portfolioQueryStyles.positiveChange}>{part}</Text>;
+      return pnlParts.map((pnlPart, pnlIndex) => {
+        if (pnlPart && pnlPart.match(pnlRegex)) { // This part is a P&L value
+          const isNegative = pnlPart.startsWith('-') || pnlPart.includes(' -');
+          return <Text key={`pnl-${pnlIndex}`} style={isNegative ? portfolioQueryStyles.negativeChange : portfolioQueryStyles.positiveChange}>{pnlPart}</Text>;
+        } else if (pnlPart) { // This part is regular text, potentially containing tickers
+          // Regex to find tickers: standalone (2-5 uppercase letters) or in parentheses (1-5 uppercase letters)
+          // This regex splits the string and includes the tickers themselves in the resulting array.
+          const tickerSplitRegex = /(\b[A-Z]{2,5}\b|\([A-Z]{1,5}\))/g;
+          const textParts = pnlPart.split(tickerSplitRegex);
+
+          return textParts.map((textPart, textIndex) => {
+            if (textPart && textPart.match(tickerSplitRegex)) {
+              // This part is a ticker.
+              let tickerSymbol = textPart;
+              let openParen = '';
+              let closeParen = '';
+
+              if (textPart.startsWith('(') && textPart.endsWith(')')) {
+                tickerSymbol = textPart.substring(1, textPart.length - 1);
+                openParen = '(';
+                closeParen = ')';
+              }
+
+              return (
+                <Text key={`ticker-${pnlIndex}-${textIndex}`}>
+                  {openParen}
+                  <Text style={{ fontWeight: 'bold' }}>{tickerSymbol}</Text>
+                  {closeParen}
+                </Text>
+              );
+            }
+            // This part is regular text between tickers or P&L values
+            return <Text key={`text-${pnlIndex}-${textIndex}`}>{textPart}</Text>;
+          }).filter(Boolean); // Filter out empty strings from split
         }
-        return <Text key={index}>{part}</Text>;
-      });
+        return null;
+      }).filter(Boolean); // Filter out nulls if pnlPart was empty
     };
 
     return (
@@ -363,7 +396,9 @@ Be direct and clear in your response. Mention all relevant results in your respo
             return (
               <View key={index} style={portfolioQueryStyles.bulletItemContainer}>
                 <Text style={portfolioQueryStyles.bulletPoint}>•</Text>
-                <Text style={portfolioQueryStyles.bulletText}>{renderTextWithPL(line.substring(2))}</Text>
+                <Text style={portfolioQueryStyles.bulletText}>
+                  {renderTextWithPL(line.substring(2))}
+                </Text>
               </View>
             );
           } else if (line.length > 0) {
@@ -465,7 +500,7 @@ Be direct and clear in your response. Mention all relevant results in your respo
             </View>
           </GestureDetector>
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>General Assistant about your Portfolio</Text>
+            <Text style={styles.headerTitle}>Your Portfolio Chatbox</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>

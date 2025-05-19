@@ -14,7 +14,7 @@ import {
   Pressable,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { GROQ_API_KEY } from '@env'; // Assuming you have your Groq API key here
+import { GROQ_API_KEY, ALPHA_VANTAGE_API_KEY } from '@env'; // Import ALPHA_VANTAGE_API_KEY
 import { useSupabaseConfig } from './SupabaseConfigContext'; // Import hook
 
 const screenHeight = Dimensions.get('window').height;
@@ -251,13 +251,182 @@ Do NOT use markdown like **bold** or _italics_. Use clear sentence structure for
     }
   };
 
+
   // --- General LLM Response (existing) ---
   const fetchGeneralLLMResponse = async (userQuery) => {
     setIsLoading(true);
-    const systemPrompt = `You are a helpful general-purpose AI assistant. Answer the user's questions clearly and concisely.`;
+    console.log('[GeneralChatbox] fetchGeneralLLMResponse initiated for query:', userQuery);
+    let finalBotResponseText = "Sorry, I encountered an issue processing your request."; // Default error
 
-    try {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    try { // This is the main try block for the entire function
+      // Phase 1: Ask LLM (Llama 3) to classify intent and extract entities
+      const intentExtractionSystemPrompt = `You are an AI assistant that analyzes user queries about finance.
+Your task is to classify the user's intent and extract relevant entities if the query is about specific stock data.
+Respond ONLY with a JSON object in the following format:
+- If the query is a general finance question (e.g., "what is a PE ratio?", "explain inflation"):
+  {"intent": "generic_finance_explanation"}
+- If the query asks for specific data about a stock (e.g., "price of AAPL", "MSFT PE ratio", "market cap for GOOG", "overview for TSLA"):
+  {"intent": "specific_data_lookup", "ticker": "TICKER_SYMBOL", "data_type": "price|pe_ratio|market_cap|overview"}
+  (Possible data_type values are: "price", "pe_ratio", "market_cap", "overview". If multiple are implied, pick the most prominent or 'overview'. If asking for general info on a stock, use 'overview'.)
+- If the query does not fit the above, or if a ticker is ambiguous or not clearly identifiable:
+  {"intent": "unknown_or_general_chat"}
+
+Extract the ticker symbol accurately. For example, in "what is the PE ratio of Apple?", the ticker should be "AAPL".
+If you cannot confidently identify a standard stock ticker for a specific data lookup, set intent to "unknown_or_general_chat".`;
+
+      console.log('[GeneralChatbox] Phase 1: Calling LLM for intent extraction.');
+      const intentResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "llama3-8b-8192",
+          messages: [
+            { role: "system", content: intentExtractionSystemPrompt },
+            { role: "user", content: userQuery }
+          ],
+          temperature: 0.1,
+          max_tokens: 150,
+          // response_format: { type: "json_object" }, // Enable if Groq/Llama3 reliably supports it
+        }),
+      });
+
+      if (!intentResponse.ok) {
+        const errorBody = await intentResponse.text();
+        console.error("[GeneralChatbox] LLM Intent Extraction API Error:", errorBody.substring(0, 500));
+        throw new Error(`Intent extraction API error ${intentResponse.status}`);
+      }
+
+      const intentData = await intentResponse.json();
+      let parsedIntent;
+      try {
+        const content = intentData.choices?.[0]?.message?.content;
+        if (!content) throw new Error("LLM intent response content is empty.");
+        
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch && jsonMatch[0]) {
+          parsedIntent = JSON.parse(jsonMatch[0]);
+        } else {
+          console.warn("[GeneralChatbox] Could not find a clear JSON block in intent response, trying to parse whole content:", content.substring(0,200));
+          parsedIntent = JSON.parse(content); // This might fail if LLM adds non-JSON text
+        }
+        console.log('[GeneralChatbox] Parsed Intent from LLM:', parsedIntent);
+      } catch (e) {
+        console.error("[GeneralChatbox] Error parsing intent JSON from LLM:", e, "Raw content:", intentData.choices?.[0]?.message?.content.substring(0,500));
+        parsedIntent = { intent: "unknown_or_general_chat" }; // Fallback
+      }
+
+      // Phase 2: Act based on the intent - Fetch data from Alpha Vantage if needed
+      let retrievedDataString = "No specific real-time data was fetched for this query via external APIs.";
+      const { intent, ticker, data_type: dataType } = parsedIntent;
+
+      if (intent === "specific_data_lookup" && ticker && ALPHA_VANTAGE_API_KEY) {
+        const upperTicker = ticker.toUpperCase();
+        console.log(`[GeneralChatbox] Phase 2: Intent is specific_data_lookup. Ticker: ${upperTicker}, DataType: ${dataType}`);
+
+        let fetchedDetailsArray = [];
+
+        // Attempt to fetch GLOBAL_QUOTE data (price, change, etc.)
+        try {
+            console.log(`[GeneralChatbox] Fetching price for ${upperTicker} from Alpha Vantage...`);
+            const quoteUrl = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${upperTicker}&apikey=${ALPHA_VANTAGE_API_KEY}`;
+          const avResponse = await fetch(quoteUrl);
+          if (avResponse.ok) {
+            const avData = await avResponse.json();
+            const globalQuote = avData["Global Quote"];
+            console.log(`[GeneralChatbox] Alpha Vantage GLOBAL_QUOTE response for ${upperTicker}:`, JSON.stringify(avData, null, 2).substring(0, 500));
+            if (globalQuote && globalQuote["05. price"]) {
+                fetchedDetailsArray.push(`Price data for ${globalQuote["01. symbol"] || upperTicker}: Current Price $${parseFloat(globalQuote["05. price"]).toFixed(2)}, Previous Close $${parseFloat(globalQuote["08. previous close"]).toFixed(2)}, Change ${globalQuote["10. change percent"]}.`);
+              console.log(`[GeneralChatbox] Successfully fetched price for ${upperTicker}:`, retrievedDataString);
+            } else if (avData["Note"]) {
+               console.warn('[GeneralChatbox] Alpha Vantage API Note (OVERVIEW):', avData["Note"]);
+                fetchedDetailsArray.push(`Could not fetch price for ${upperTicker} (Alpha Vantage Note: ${avData["Note"]})`);
+            } else {
+              console.warn('[GeneralChatbox] Alpha Vantage - Overview data not found:', JSON.stringify(avData).substring(0,200));
+                fetchedDetailsArray.push(`Price data not found for ${upperTicker} via Alpha Vantage.`);
+            }
+          } else {
+            const errorText = await avResponse.text();
+            console.error(`[GeneralChatbox] Alpha Vantage GLOBAL_QUOTE API Error Status: ${avResponse.status}`, errorText.substring(0, 500));
+              fetchedDetailsArray.push(`Error fetching price data for ${upperTicker} from Alpha Vantage (Status: ${avResponse.status}).`);
+          }
+        } catch (e) {
+          console.error("[GeneralChatbox] Exception during Alpha Vantage GLOBAL_QUOTE call:", e);
+            fetchedDetailsArray.push(`Error connecting to financial data provider for ${upperTicker} price.`);
+        }
+
+        // Attempt to fetch OVERVIEW data (PE, Market Cap, Description, etc.)
+        try {
+            console.log(`[GeneralChatbox] Fetching overview for ${upperTicker} from Alpha Vantage...`);
+            const overviewUrl = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${upperTicker}&apikey=${ALPHA_VANTAGE_API_KEY}`;
+          const avResponse = await fetch(overviewUrl);
+          if (avResponse.ok) {
+            const avData = await avResponse.json();
+            console.log(`[GeneralChatbox] Alpha Vantage OVERVIEW response for ${upperTicker}:`, JSON.stringify(avData, null, 2).substring(0, 500));
+            if (avData && avData["Symbol"]) {
+              let details = [];
+              if (avData["Name"]) details.push(`Company: ${avData["Name"]} (${avData["Symbol"]})`);
+              if (avData["PERatio"] && avData["PERatio"] !== "None") details.push(`P/E Ratio: ${avData["PERatio"]}`);
+              if (avData["MarketCapitalization"] && avData["MarketCapitalization"] !== "None") {
+                  const marketCap = parseInt(avData["MarketCapitalization"]);
+                  if (!isNaN(marketCap)) details.push(`Market Cap: $${(marketCap / 1e9).toFixed(2)}B`);
+              }
+              if (avData["Description"] && avData["Description"] !== "None") details.push(`Description: ${avData["Description"].substring(0, 200)}...`);
+              if (avData["EPS"] && avData["EPS"] !== "None") details.push(`EPS: ${avData["EPS"]}`);
+              if (avData["DividendYield"] && avData["DividendYield"] !== "None") details.push(`Dividend Yield: ${(parseFloat(avData["DividendYield"]) * 100).toFixed(2)}%`);
+              if (avData["52WeekHigh"] && avData["52WeekHigh"] !== "None") details.push(`52W High: $${avData["52WeekHigh"]}`);
+              if (avData["52WeekLow"] && avData["52WeekLow"] !== "None") details.push(`52W Low: $${avData["52WeekLow"]}`);
+              
+              if (details.length > 0) {
+                fetchedDetailsArray.push(`Overview: ${details.join('; ')}.`);
+              } else {
+                fetchedDetailsArray.push(`Key overview data not readily available for ${upperTicker}.`);
+              }
+              console.log(`[GeneralChatbox] Successfully fetched overview for ${upperTicker}:`, retrievedDataString);
+            } else if (avData["Note"]) {
+               console.warn('[GeneralChatbox] Alpha Vantage API Note (OVERVIEW):', avData["Note"]);
+                fetchedDetailsArray.push(`Could not fetch overview for ${upperTicker} (Alpha Vantage Note: ${avData["Note"]})`);
+            } else {
+              console.warn('[GeneralChatbox] Alpha Vantage - Overview data not found:', JSON.stringify(avData).substring(0,200));
+                fetchedDetailsArray.push(`Overview data not found for ${upperTicker} via Alpha Vantage.`);
+            }
+          } else {
+            const errorText = await avResponse.text();
+            console.error(`[GeneralChatbox] Alpha Vantage OVERVIEW API Error Status: ${avResponse.status}`, errorText.substring(0, 500));
+              fetchedDetailsArray.push(`Error fetching overview data for ${upperTicker} from Alpha Vantage (Status: ${avResponse.status}).`);
+          }
+        } catch (e) {
+          console.error("[GeneralChatbox] Exception during Alpha Vantage OVERVIEW call:", e);
+            fetchedDetailsArray.push(`Error connecting to financial data provider for ${upperTicker} overview.`);
+        }
+        retrievedDataString = fetchedDetailsArray.length > 0 ? fetchedDetailsArray.join(" \n") + " (Source: Alpha Vantage)" : "Could not retrieve detailed data from Alpha Vantage.";
+
+      } else {
+        console.log(`[GeneralChatbox] Phase 2: Intent is '${intent}'. Skipping Alpha Vantage call. Ticker: ${ticker}, DataType: ${dataType}, Key available: ${!!ALPHA_VANTAGE_API_KEY}`);
+      }
+
+      // Phase 3: Generate final response using LLM (Llama 3)
+      console.log("[GeneralChatbox] Phase 3: Data string for final LLM prompt:", retrievedDataString);
+      const finalResponseSystemPrompt = `You are a helpful AI assistant and also act as a financial analyst when asked about market topics. 
+The user asked the following question. This question was NOT answerable from their personal portfolio data.
+
+IMPORTANT LIMITATION: You DO NOT have access to real-time data from the internet (like current stock prices, live PE ratios, or today's news headlines).
+
+The following information was retrieved from an external financial data API (if applicable):
+---
+${retrievedDataString}
+---
+
+Based on the user's query AND the retrieved data above, provide an insightful and professional response.
+If the retrieved data directly answers the query, present it clearly.
+If the retrieved data indicates an error, an API limit, or that data was not found (e.g., contains "Could not fetch", "Error fetching", "data not found"), acknowledge this limitation for the specific request. Then, provide general context about the query topic or explain where the user might typically find such information, based on your expertise and general knowledge.
+If the query is more general (e.g., "explain what a PE ratio is"), provide a concise, expert explanation.
+Maintain a professional and helpful tone.`;
+    
+    // This inner try...catch was for the final LLM call specifically, which is fine.
+      const finalLlmResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -266,41 +435,45 @@ Do NOT use markdown like **bold** or _italics_. Use clear sentence structure for
         body: JSON.stringify({
           model: "llama3-8b-8192", // Or your preferred Groq model
           messages: [
-            { role: "system", content: systemPrompt },
+            { role: "system", content: finalResponseSystemPrompt },
             { role: "user", content: userQuery }
           ],
           temperature: 0.7,
         }),
       });
 
-      if (!response.ok) {
-        const errorBody = await response.text();
-        console.error("LLM API Error:", errorBody);
-        throw new Error(`API error ${response.status}`);
+      if (!finalLlmResponse.ok) {
+        const errorBody = await finalLlmResponse.text();
+        console.error("[GeneralChatbox] Final LLM Response API Error:", errorBody.substring(0,500));
+        throw new Error(`Final LLM response API error ${finalLlmResponse.status}`);
       }
 
-      const data = await response.json();
-      const botResponse = data.choices?.[0]?.message?.content.trim();
+      const data = await finalLlmResponse.json();
+      const botResponseText = data.choices?.[0]?.message?.content.trim();
 
-      if (botResponse) {
-        setMessages(prevMessages => [ // Ensure this updates the messages state
-          ...prevMessages,
-          { id: String(Date.now() + 1), text: botResponse, sender: 'bot' },
-        ]);
+      if (botResponseText) {
+        finalBotResponseText = botResponseText;
       } else {
         throw new Error("Empty response from LLM");
       }
-    } catch (error) {
-      console.error("Error fetching LLM response:", error);
+    } catch (error) { // This catch is for the main try block starting at line 261
+      console.error("[GeneralChatbox] Error in fetchGeneralLLMResponse:", error);
+      // Update finalBotResponseText if it hasn't been set by a more specific error message
+      if (finalBotResponseText === "Sorry, I encountered an issue processing your request." || !finalBotResponseText.includes(error.message) ) {
+        finalBotResponseText = `Sorry, an error occurred: ${error.message.substring(0,150)}`;
+      }
+    } finally {      
       setMessages(prevMessages => [
         ...prevMessages,
-        { id: String(Date.now() + 1), text: "Sorry, I couldn't get a response. Please try again.", sender: 'bot' },
+{ 
+          id: String(Date.now() + Math.random()), // Ensure unique ID
+          text: finalBotResponseText, 
+          sender: 'bot' 
+        },
       ]);
-    } finally {
       setIsLoading(false);
     }
   };
-
   const handleSend = async () => {
     const userQuery = inputText.trim();
     if (userQuery.length === 0) return;
@@ -314,7 +487,13 @@ Do NOT use markdown like **bold** or _italics_. Use clear sentence structure for
       const sqlQuery = await interpretPortfolioQuery(userQuery);
 
       if (sqlQuery === 'QUERY_UNANSWERABLE') {
-        setMessages(prevMessages => [...prevMessages, { id: String(Date.now() + 1), text: "I can't answer that question based on the available portfolio data.", sender: 'bot', type: 'info' }]);
+        // Inform user and then trigger web search
+        const webSearchInfoMessageId = String(Date.now() + 1);
+        setMessages(prevMessages => [...prevMessages, {
+          id: webSearchInfoMessageId,
+          text: "I couldn't find that in your portfolio data. Let me check for general financial information...",
+          sender: 'bot', type: 'info' }]);
+        await fetchGeneralLLMResponse(userQuery); // Now call the general Groq LLM
       } else if (sqlQuery) {
         const results = await fetchPortfolioDataFromSupabase(sqlQuery);
         const formattedText = await getFormattedPortfolioTextResponseFromLLM(userQuery, results);
@@ -329,7 +508,7 @@ Do NOT use markdown like **bold** or _italics_. Use clear sentence structure for
         }]);
       } else {
         // Not a portfolio query, or interpretation failed, proceed to general LLM
-        await fetchGeneralLLMResponse(userQuery);
+        await fetchGeneralLLMResponse(userQuery); // Still call general LLM if interpretation fails
       }
     } catch (error) {
       console.error("Error in handleSend (portfolio query path):", error);
@@ -513,6 +692,7 @@ Do NOT use markdown like **bold** or _italics_. Use clear sentence structure for
             {messages.map(msg => (
               msg.type === 'portfolio_response' ? (
                 <View key={msg.id} style={[styles.messageBubble, styles.botMessage, portfolioQueryStyles.portfolioMessageBubble]}>
+                  {/* ... existing portfolio response rendering ... */}
                   {msg.llmResponse && !msg.llmResponse.toLowerCase().includes("error") && !msg.llmResponse.toLowerCase().includes("no data was found") ? (
                     <FormattedLLMResponse text={msg.llmResponse} />
                   ) : msg.rawData && msg.rawData.length > 0 ? (
@@ -522,8 +702,15 @@ Do NOT use markdown like **bold** or _italics_. Use clear sentence structure for
                       {renderFallbackResults(msg.rawData)}
                     </>
                   ) : (
+                    // This is the problematic part when the above conditions are false
+                    // AND msg.rawData is also falsy or empty
                     <Text style={portfolioQueryStyles.llmParagraph}>{msg.text || "No information found for your query."}</Text>
                   )}
+                </View>
+              ) : msg.type === 'info' ? ( // Handle info messages
+                <View key={msg.id} style={[styles.messageBubble, styles.botMessage, styles.infoMessage]}>
+                  {/* For 'info' messages, we typically just want to display the msg.text */}
+                  <Text style={styles.botMessageText}>{msg.text}</Text>
                 </View>
               ) : (
                 <View
@@ -636,6 +823,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#E0E0E0',
     alignSelf: 'flex-start',
     borderBottomLeftRadius: 5,
+  },
+  infoMessage: { // Style for informational messages from the bot
+    backgroundColor: '#FFF9C4', // A light yellow, for example
+    borderColor: '#FFF59D',
   },
   userMessageText: {
     fontSize: 15,

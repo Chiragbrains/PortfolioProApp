@@ -443,7 +443,7 @@ Maintain a professional and helpful tone.`;
       });
 
       if (!finalLlmResponse.ok) {
-        const errorBody = await finalLlmResponse.text(); 
+        const errorBody = await finalLlmResponse.text();
         console.error("[GeneralChatbox] Final LLM Response API Error:", errorBody.substring(0,500));
         throw new Error(`Final LLM response API error ${finalLlmResponse.status}`);
       }

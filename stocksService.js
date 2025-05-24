@@ -274,26 +274,18 @@ export const truncateInvestmentAccounts = async (supabaseClient) => {
  * @returns {Promise<Array>}
  */
 export const fetchPortfolioHistory = async (supabaseClient, days = 90) => {
-<<<<<<< HEAD
     if (!supabaseClient) {
         console.error('No supabaseClient provided to fetchPortfolioHistory');
         throw new Error('Supabase client is required');
     }
-    
     try {
         console.log(`Fetching portfolio history for last ${days} days...`);
-=======
-    if (!supabaseClient) return null;
-    
-    try {
->>>>>>> 20fee5b1230c5ccb63ac341afb8facf11e00b16e
         const { data: historyData, error } = await supabaseClient
             .from('portfolio_history')
             .select('*')
             .order('date', { ascending: true })
             .gte('date', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
         
-<<<<<<< HEAD
         if (error) {
             console.error('Error fetching portfolio history:', error);
             throw error;
@@ -305,37 +297,20 @@ export const fetchPortfolioHistory = async (supabaseClient, days = 90) => {
         }
         
         console.log(`Found ${historyData.length} history records`);
-=======
-        if (error) throw error;
->>>>>>> 20fee5b1230c5ccb63ac341afb8facf11e00b16e
-        
+
         // Process the history data to avoid double-counting cash
         const processedData = historyData.map(record => ({
             ...record,
-<<<<<<< HEAD
-            total_value: record.total_value || 0,
-            date: record.date // Use date field
-=======
-            // Use total_value directly as it already includes cash
             total_value: record.total_value || 0,
             date: record.date
->>>>>>> 20fee5b1230c5ccb63ac341afb8facf11e00b16e
         }));
         
         return processedData;
-        
     } catch (error) {
-<<<<<<< HEAD
         console.error('Error in fetchPortfolioHistory:', error);
-        throw error; // Throw the error instead of returning null
-=======
-        console.error('Error fetching portfolio history:', error);
-        return null;
->>>>>>> 20fee5b1230c5ccb63ac341afb8facf11e00b16e
+        throw error;
     }
 };
-
-// --- Functions below remain largely the same as they interact with history or trigger the Edge Function ---
 
 /**
  * Checks history and invokes the 'portfolio-processor' Edge Function if needed,

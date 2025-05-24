@@ -25,6 +25,7 @@ const Dashboard = () => {
   const [selectedTimeRange, setSelectedTimeRange] = useState(90); // Default to 3M for line/bar charts
   const [selectedAsset, setSelectedAsset] = useState(null);
   const [hoveredMetric, setHoveredMetric] = useState(null);
+  const [isValueVisible, setIsValueVisible] = useState(false);
 
   // KPI Data
   const [kpiData, setKpiData] = useState(null);
@@ -76,14 +77,14 @@ const Dashboard = () => {
       const todayPnlDollar = latest.total_value - previous.total_value;
       const todayPnlPercent = previous.total_value ? (todayPnlDollar / previous.total_value) * 100 : 0;
 
-      // Fetch unique assets count
+      // Fetch unique assets count (exclude cash)
       const { data: summaryData, error: summaryError } = await supabaseClient
         .from('portfolio_summary')
         .select('*');
 
       if (summaryError) throw summaryError;
-      
-      const uniqueAssets = summaryData ? summaryData.length : 0;
+      // Only count assets where type !== 'cash'
+      const uniqueAssets = summaryData ? summaryData.filter(item => item.type !== 'cash').length : 0;
 
       setKpiData({
         totalPortfolioValue: latest.total_value,
@@ -313,26 +314,36 @@ const Dashboard = () => {
     setSelectedTimeRange(days);
   };
 
+  const toggleValueVisibility = () => setIsValueVisible(v => !v);
+
   // --- Render Functions ---
   const renderKpiCards = () => {
     if (isLoadingKpis) return <ActivityIndicator color="#8b5cf6" style={{ marginVertical: 20 }} />;
     if (kpiError) return <Text style={styles.errorText}>{kpiError}</Text>;
     if (!kpiData) return <Text style={styles.emptyText}>No summary data available.</Text>;
 
+    const hiddenValuePlaceholder = '$*****';
+    const hiddenPnlPlaceholder = '*****';
+    const isProfitable = kpiData.overallPnlDollar >= 0;
+
     return (
       <View>
         {/* Total Portfolio Value Card */}
-        <View style={[styles.kpiCardLarge, styles.gradientCard]}>
+        <View style={[styles.kpiCardLarge, styles.gradientCard, { position: 'relative', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }]}> 
           <Text style={styles.kpiLabel}>Total Portfolio Value</Text>
-          <Text style={[styles.kpiValueLarge, styles.gradientText]}>{formatCurrency(kpiData.totalPortfolioValue)}</Text>
+          <Text style={[styles.kpiValueLarge, styles.gradientText]}>
+            {isValueVisible ? formatCurrency(kpiData.totalPortfolioValue) : hiddenValuePlaceholder}
+          </Text>
+          <TouchableOpacity onPress={toggleValueVisibility} style={{ position: 'absolute', right: 18, top: 18, padding: 8 }}>
+            <Text style={{ fontSize: 22 }}>{isValueVisible ? '👁️' : '🔒'}</Text>
+          </TouchableOpacity>
         </View>
-
         {/* KPI Row */}
         <View style={styles.kpiRowContainer}>
           {[
-            { label: "Today's P&L", value: formatCurrency(kpiData.todayPnlDollar, true), subValue: `(${kpiData.todayPnlPercent >= 0 ? '+' : ''}${kpiData.todayPnlPercent?.toFixed(2)}%)`, valueColor: getPnlColor(kpiData.todayPnlDollar) },
-            { label: 'Unique Assets', value: kpiData.uniqueAssets?.toString() ?? '--', valueColor: styles.kpiValue },
-            { label: 'Overall P&L', value: formatCurrency(kpiData.overallPnlDollar, true), subValue: `(${kpiData.overallPnlPercent >= 0 ? '+' : ''}${kpiData.overallPnlPercent?.toFixed(2)}%)`, valueColor: getPnlColor(kpiData.overallPnlDollar) },
+            { label: "Today's P&L", value: formatCurrency(kpiData.todayPnlDollar, true), subValue: `(${kpiData.todayPnlPercent >= 0 ? '+' : ''}${kpiData.todayPnlPercent?.toFixed(2)}%)`, valueColor: getPnlColor(kpiData.todayPnlDollar), alwaysShow: true },
+            { label: 'Unique Assets', value: kpiData.uniqueAssets?.toString() ?? '--', valueColor: styles.kpiValue, alwaysShow: true },
+            { label: 'Overall P&L', value: isValueVisible ? formatCurrency(kpiData.overallPnlDollar, true) : hiddenPnlPlaceholder, subValue: isValueVisible ? `(${kpiData.overallPnlPercent >= 0 ? '+' : ''}${kpiData.overallPnlPercent?.toFixed(2)}%)` : '', valueColor: getPnlColor(kpiData.overallPnlDollar), alwaysShow: false },
           ].map((kpi, index) => (
             <View key={index} style={styles.kpiRowCard}>
               <Text style={styles.kpiLabel}>{kpi.label}</Text>

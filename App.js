@@ -10,10 +10,8 @@ import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
 import { GestureHandlerRootView } from 'react-native-gesture-handler'; // Import GestureHandlerRootView
 import ConnectionErrorModal from './ConnectionErrorModal'; // Assuming this exists
-<<<<<<< HEAD
 import Dashboard from './Dashboard'; // Add Dashboard import
-=======
->>>>>>> 20fee5b1230c5ccb63ac341afb8facf11e00b16e
+import { TrendingUp, BarChart3, BarChart4, BarChartHorizontal, LineChart, PieChart, Users } from 'lucide-react';
 
 // --- Import Service Functions ---
 import {
@@ -82,34 +80,27 @@ const MenuDrawer = ({ visible, onClose, onImportPress, onClearDataPress, onDisco
 
 // Bottom Tab Navigator
 const BottomNavBar = ({ activeTab, setActiveTab }) => (
-    <View style={newStyles.navBar}>
+    <View style={newStyles.navBar} pointerEvents="box-none" collapsable={false}>
         <TouchableOpacity
             style={newStyles.navItem}
             onPress={() => setActiveTab('portfolio')}
         >
-            <Text style={[newStyles.navText, activeTab === 'portfolio' && newStyles.navTextActive]}>📊</Text>
+            <PieChart size={28} strokeWidth={3.2} color={activeTab === 'portfolio' ? '#0066cc' : '#8A94A6'} />
             <Text style={[newStyles.navLabel, activeTab === 'portfolio' && newStyles.navLabelActive]}>Portfolio</Text>
         </TouchableOpacity>
         <TouchableOpacity
             style={newStyles.navItem}
             onPress={() => setActiveTab('accountDetail')}
         >
-            <Text style={[newStyles.navText, activeTab === 'accountDetail' && newStyles.navTextActive]}>🏦</Text>
+            <Users size={28} strokeWidth={3.2} color={activeTab === 'accountDetail' ? '#0066cc' : '#8A94A6'} />
             <Text style={[newStyles.navLabel, activeTab === 'accountDetail' && newStyles.navLabelActive]}>Accounts</Text>
         </TouchableOpacity>
         <TouchableOpacity
             style={newStyles.navItem}
-<<<<<<< HEAD
             onPress={() => setActiveTab('dashboard')}
         >
-            <Text style={[newStyles.navText, activeTab === 'dashboard' && newStyles.navTextActive]}>📈</Text>
+            <BarChart3 size={28} strokeWidth={3.2} color={activeTab === 'dashboard' ? '#0066cc' : '#8A94A6'} />
             <Text style={[newStyles.navLabel, activeTab === 'dashboard' && newStyles.navLabelActive]}>Dashboard</Text>
-=======
-            onPress={() => setActiveTab('history')}
-        >
-            <Text style={[newStyles.navText, activeTab === 'history' && newStyles.navTextActive]}>📈</Text>
-            <Text style={[newStyles.navLabel, activeTab === 'history' && newStyles.navLabelActive]}>History</Text>
->>>>>>> 20fee5b1230c5ccb63ac341afb8facf11e00b16e
         </TouchableOpacity>
     </View>
 );
@@ -413,7 +404,7 @@ export default function App() {
     const [isChatboxVisible, setIsChatboxVisible] = useState(false);
 
     // --- Logic & Handlers (Keep ALL existing functions: loadData, handleConnectionErrorOk, handleFileSelect, processExcelData, handleBulkImport, handleAddStock, handleEditStock, handleUpdateStock, handleClearAllData, confirmClearAllData, handleDisconnect, confirmDisconnect, validateData, openAddStockModal) ---
-    // --- Data Loading (Ensure it calls without forcing) ---
+    // --- Data Loading (Ensure it calls without forcing it) ---
       const loadData = useCallback(async (showPopup = true) => {
         if (!supabaseClient || !clearConfig) {
           console.error("Supabase client or clearConfig not available in loadData");
@@ -1098,13 +1089,8 @@ export default function App() {
                         )}
                     </View>
                 );
-<<<<<<< HEAD
             case 'dashboard':
                 return <Dashboard />;
-=======
-            case 'history':
-                return <PortfolioGraph />; // Keep using the existing graph component
->>>>>>> 20fee5b1230c5ccb63ac341afb8facf11e00b16e
             default:
                 return null;
         }
@@ -1180,11 +1166,7 @@ export default function App() {
             <BottomNavBar activeTab={activeTab} setActiveTab={setActiveTab} />
 
             {/* Floating Add Button (Always visible except maybe on History?) */}
-<<<<<<< HEAD
-            {activeTab !== 'dashboard' && (
-=======
-            {activeTab !== 'history' && (
->>>>>>> 20fee5b1230c5ccb63ac341afb8facf11e00b16e
+            {activeTab !== 'dashboard' && activeTab !== 'history' && (
                 <TouchableOpacity style={newStyles.fab} onPress={openAddStockModal}>
                     <Text style={newStyles.fabText}>+</Text>
                 </TouchableOpacity>
@@ -1192,10 +1174,10 @@ export default function App() {
             {/* Chatbox Toggle Button - Position it globally */}
             {!isChatboxVisible && ( // Only show button if chatbox is not visible
                 <TouchableOpacity
-                style={appStyles.chatToggleButton}
+                style={newStyles.chatToggleButton}
                 onPress={() => setIsChatboxVisible(true)}
                 >
-                <Text style={appStyles.chatToggleButtonText}>AI</Text>
+                <Text style={newStyles.chatToggleButtonText}>AI</Text>
                 </TouchableOpacity>
             )}
 
@@ -1211,7 +1193,7 @@ export default function App() {
                 <GestureHandlerRootView style={{ flex: 1 }}>
                     {/* Pressable for the overlay to close the modal */}
                     <Pressable onPress={() => setIsChatboxVisible(false)} style={{ flex: 1 }}>
-                        <View style={appStyles.modalOverlay}>
+                        <View style={newStyles.modalOverlay}>
                             {/* GeneralChatbox will handle its own touch consumption */}
                             <GeneralChatbox onClose={() => setIsChatboxVisible(false)} />
                         </View>
@@ -1293,6 +1275,18 @@ const newStyles = StyleSheet.create({
         borderTopColor: '#E0E7F1',
         backgroundColor: '#FFFFFF',
         paddingBottom: Platform.OS === 'ios' ? 10 : 0, // Padding for home indicator
+        // Web specific styles
+        position: 'fixed',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 100,
+        userSelect: 'none',
+        touchAction: 'none',
+        transform: 'scale(1)', // Prevent zoom scaling on web
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none',
+        WebkitTapHighlightColor: 'transparent',
     },
     navItem: {
         flex: 1,
@@ -1622,7 +1616,7 @@ const newStyles = StyleSheet.create({
     loadingContainer: { // New style for loading indicator + text
         flex: 1,
         justifyContent: 'center',
-        alignItems: 'center',
+ alignItems: 'center',
         padding: 20,
         marginTop: 50, // Keep some top margin
     },
@@ -1632,7 +1626,7 @@ const newStyles = StyleSheet.create({
         color: '#6C7A91',
     },
     loadingOverlay: {
-        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+               position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.6)',
         justifyContent: 'center', alignItems: 'center', zIndex: 2000,
     },
@@ -1782,33 +1776,31 @@ const newStyles = StyleSheet.create({
         color: '#8A94A6', // Muted grey color
         fontStyle: 'italic',
     },
-});
-
-const appStyles = StyleSheet.create({
     chatToggleButton: {
-      position: 'absolute',
-      bottom: Platform.OS === 'ios' ? 40 : 20, // Adjust for safe areas if needed
-      right: 20,
-      backgroundColor: '#007AFF', // Example button color
-      paddingVertical: 12,
-      paddingHorizontal: 18,
-      borderRadius: 30,
-      elevation: 8,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 3.84,
-      zIndex: 1000, // Ensure it's on top
+        position: 'absolute',
+        right: 20,
+        bottom: 80,
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: '#0066cc',
+        justifyContent: 'center',
+        alignItems: 'center',
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
     },
     chatToggleButtonText: {
-      color: 'white',
-      fontWeight: 'bold',
-      fontSize: 16,
+        color: '#FFFFFF',
+        fontSize: 20,
+        fontWeight: 'bold',
     },
     modalOverlay: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'flex-end', // Positions chatbox at the bottom
-      backgroundColor: 'rgba(0,0,0,0.3)', // Semi-transparent backdrop
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-  });
+});

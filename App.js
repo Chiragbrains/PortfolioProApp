@@ -10,7 +10,10 @@ import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
 import { GestureHandlerRootView } from 'react-native-gesture-handler'; // Import GestureHandlerRootView
 import ConnectionErrorModal from './ConnectionErrorModal'; // Assuming this exists
+<<<<<<< HEAD
 import Dashboard from './Dashboard'; // Add Dashboard import
+=======
+>>>>>>> 20fee5b1230c5ccb63ac341afb8facf11e00b16e
 
 // --- Import Service Functions ---
 import {
@@ -96,10 +99,17 @@ const BottomNavBar = ({ activeTab, setActiveTab }) => (
         </TouchableOpacity>
         <TouchableOpacity
             style={newStyles.navItem}
+<<<<<<< HEAD
             onPress={() => setActiveTab('dashboard')}
         >
             <Text style={[newStyles.navText, activeTab === 'dashboard' && newStyles.navTextActive]}>📈</Text>
             <Text style={[newStyles.navLabel, activeTab === 'dashboard' && newStyles.navLabelActive]}>Dashboard</Text>
+=======
+            onPress={() => setActiveTab('history')}
+        >
+            <Text style={[newStyles.navText, activeTab === 'history' && newStyles.navTextActive]}>📈</Text>
+            <Text style={[newStyles.navLabel, activeTab === 'history' && newStyles.navLabelActive]}>History</Text>
+>>>>>>> 20fee5b1230c5ccb63ac341afb8facf11e00b16e
         </TouchableOpacity>
     </View>
 );
@@ -1088,8 +1098,13 @@ export default function App() {
                         )}
                     </View>
                 );
+<<<<<<< HEAD
             case 'dashboard':
                 return <Dashboard />;
+=======
+            case 'history':
+                return <PortfolioGraph />; // Keep using the existing graph component
+>>>>>>> 20fee5b1230c5ccb63ac341afb8facf11e00b16e
             default:
                 return null;
         }
@@ -1165,7 +1180,11 @@ export default function App() {
             <BottomNavBar activeTab={activeTab} setActiveTab={setActiveTab} />
 
             {/* Floating Add Button (Always visible except maybe on History?) */}
+<<<<<<< HEAD
             {activeTab !== 'dashboard' && (
+=======
+            {activeTab !== 'history' && (
+>>>>>>> 20fee5b1230c5ccb63ac341afb8facf11e00b16e
                 <TouchableOpacity style={newStyles.fab} onPress={openAddStockModal}>
                     <Text style={newStyles.fabText}>+</Text>
                 </TouchableOpacity>

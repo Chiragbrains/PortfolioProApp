@@ -666,6 +666,11 @@ Maintain a professional and helpful tone.`;
         end={{ x: 1, y: 1 }}
         style={styles.topBar}
       >
+        <GestureDetector gesture={dragGesture}>
+          <View style={styles.swipeHandleContainer}>
+            <View style={styles.swipeHandle} />
+          </View>
+        </GestureDetector>
         <Pressable
           style={styles.topBarPressable}
           onPress={() => {
@@ -684,15 +689,6 @@ Maintain a professional and helpful tone.`;
         keyboardVerticalOffset={0}
       >
         <View style={styles.chatContainer}>
-          <GestureDetector gesture={dragGesture}>
-            <View 
-              style={styles.swipeHandleContainer}
-              onStartShouldSetResponderCapture={() => true}
-            >
-              <View style={styles.swipeHandle} />
-            </View>
-          </GestureDetector>
-          {/* Removed the header with 'Your Portfolio Chatbox' and close button below the purple bar */}
           <ScrollView
             ref={scrollViewRef}
             style={styles.messagesContainer}
@@ -742,6 +738,7 @@ Maintain a professional and helpful tone.`;
               value={inputText}
               onChangeText={setInputText}
               placeholder="Ask info about your portfolio..."
+              placeholderTextColor="rgba(255, 255, 255, 0.6)"
               onSubmitEditing={handleSend}
               returnKeyType="send"
             />
@@ -762,12 +759,15 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     overflow: 'hidden',
-    width: '90%', // Set width to 90% of the page
-    alignSelf: 'center', // Center the chatbox horizontally
-  },
+    width: '100%', // Ensure this is 100% to fill the parent container from App.js
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 10,
+    },
   topBar: {
-    height: 60,
-    justifyContent: 'center',
+    minHeight: 60,
     paddingHorizontal: 18,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
@@ -809,6 +809,7 @@ const styles = StyleSheet.create({
   chatContainer: {
     // chatContainer should fill the KAV. KAV's behavior="padding" will adjust this.
     flex: 1, 
+    width: '100%', // Add this to make the content area fill the width
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -820,14 +821,15 @@ const styles = StyleSheet.create({
   },
   swipeHandleContainer: {
     alignItems: 'center',
-    paddingVertical: 10, // Makes the area around the handle touchable for swipe
-    width: '100%', // Ensure it spans the top of the chatbox
+    paddingTop: 10,
+    paddingBottom: 5,
+    width: '100%',
   },
   swipeHandle: {
-    width: 50, // Wider handle
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#B0B0B0', // A visible grey color for the handle
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)', // Semi-transparent white for better visibility on gradient
   },
   messagesContainer: {
     flex: 1,
@@ -878,9 +880,14 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    color: '#fff',
+    color: '#000000', // Changed from '#FFFFFF' to black
     fontSize: 16,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginRight: 8,
+    placeholderTextColor: 'rgba(255, 255, 255, 0.6)',
   },
   sendButton: {
     marginLeft: 10,

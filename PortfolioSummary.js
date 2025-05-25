@@ -47,17 +47,27 @@ const PortfolioSummary = ({ summaryData, onMenuPress }) => {
       <TouchableOpacity style={styles.menuIconTouchable} onPress={onMenuPress} hitSlop={{top: 10, left: 10, right: 10, bottom: 10}}>
         <Ionicons name="menu" size={28} color="#fff" />
       </TouchableOpacity>
+      {/* The summaryHeaderTouchable now needs to be aware of the menu icon's space */}
       <TouchableOpacity style={styles.summaryHeaderTouchable} onPress={() => setIsCollapsed(!isCollapsed)} activeOpacity={0.8}>
-        <Text style={styles.summaryLabel}>Portfolio Summary</Text>
-        <View style={styles.summaryHeaderRight}>
-          <TouchableOpacity style={styles.visibilityButton} onPress={() => setIsValueVisible(v => !v)}>
-            <Text style={styles.visibilityIcon}>{isValueVisible ? unlockIcon : lockIcon}</Text>
-          </TouchableOpacity>
-          <Text style={styles.summaryValue}>
-            {isValueVisible ? `$${formatNumber(Math.round(totalValue))}` : '••••••'}
-          </Text>
-          <Text style={styles.summaryCollapseIcon}>{isCollapsed ? '▼' : '▲'}</Text>
-        </View>
+        {/* This View will contain the label and the right-aligned items */}
+        <View style={styles.headerContentWrapper}> 
+          <Text style={styles.summaryLabel}>Portfolio Summary</Text>
+          {/* Group for right-aligned items */}
+          <View style={styles.headerRightItemsGroup}>
+            <TouchableOpacity style={styles.visibilityButton} onPress={() => setIsValueVisible(v => !v)}>
+              <Text style={styles.visibilityIcon}>{isValueVisible ? unlockIcon : lockIcon}</Text>
+            </TouchableOpacity>
+            <Text 
+              style={styles.summaryValue}
+              adjustsFontSizeToFit={true} 
+              numberOfLines={1}           
+              minimumFontScale={0.7} 
+            >
+              {isValueVisible ? `$${formatNumber(Math.round(totalValue))}` : '••••••'}
+            </Text>
+            <Text style={styles.summaryCollapseIcon}>{isCollapsed ? '▼' : '▲'}</Text>
+          </View>
+        </View> 
       </TouchableOpacity>
       {!isCollapsed && (
         <View style={styles.summaryContentContainer}>
@@ -106,7 +116,7 @@ const styles = StyleSheet.create({
   },
   menuIconTouchable: {
     position: 'absolute',
-    top: 8,
+    top: 15,
     left: 8,
     zIndex: 10,
     backgroundColor: 'transparent', // No background
@@ -114,21 +124,37 @@ const styles = StyleSheet.create({
   },
   summaryHeaderTouchable: {
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 2, // Less vertical padding
-    paddingHorizontal: 0,
+    // Menu icon: left 8, width ~32. Effective right edge ~40px from card edge.
+    // summaryCard has paddingHorizontal: 10.
+    // So, paddingLeft for summaryHeaderTouchable content = (40 for icon + 8 for gap) - 10 from card = 38.
+    paddingLeft: 38, 
+    flex: 1, // Allow it to take available width in the card.
+  },
+  headerContentWrapper: { // New wrapper for label and right items
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between', // Pushes label left, and the group of right items right
+    alignItems: 'center',
+  },
+  headerRightItemsGroup: { // New style for the group of items on the right
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   summaryLabel: {
-    fontSize: 28, // Much larger for dashboard style
+    fontSize: 16, // Much larger for dashboard style
     color: '#fff',
     fontWeight: 'bold',
-    textAlign: 'center',
-    flex: 1, // Take up available space for centering
+    textAlign: 'left',
+    // flex: 1, // Removed: justifyContent:space-between on parent will handle spacing.
     letterSpacing: 0.5,
+    marginRight: 8, // Add a small gap before the right items group
   },
   summaryValue: {
-    fontSize: 24,
+    fontSize: 20,
+    textAlign: 'right',
+    flex: 1,
     fontWeight: '700',
     color: '#fff',
     marginRight: 8,
@@ -136,14 +162,6 @@ const styles = StyleSheet.create({
   summaryCollapseIcon: {
     fontSize: 16,
     color: '#B6C2DF',
-  },
-  summaryHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    height: '100%',
   },
   summaryContentContainer: {
     paddingHorizontal: 0,

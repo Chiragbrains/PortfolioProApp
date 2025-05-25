@@ -1210,11 +1210,15 @@ export default function App() {
                 }}
             >
                 <GestureHandlerRootView style={{ flex: 1 }}>
-                    {/* Pressable for the overlay to close the modal */}
-                    <Pressable onPress={() => setIsChatboxVisible(false)} style={{ flex: 1 }}>
-                        <View style={newStyles.modalOverlay}>
-                            {/* GeneralChatbox will handle its own touch consumption */}
-                            <GeneralChatbox onClose={() => setIsChatboxVisible(false)} />
+                    <Pressable 
+                        style={{ flex: 1 }}
+                        onPress={() => setIsChatboxVisible(false)}
+                    >
+                        <View style={[newStyles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
+                            <Pressable onPress={e => e.stopPropagation()}>
+                                <View style={newStyles.chatboxModalContainer}>
+                                    <GeneralChatbox onClose={() => setIsChatboxVisible(false)} />
+                                </View>                            </Pressable>
                         </View>
                     </Pressable>
                 </GestureHandlerRootView>
@@ -1661,8 +1665,8 @@ const newStyles = StyleSheet.create({
     loadingContainer: { // New style for loading indicator + text
         flex: 1,
         justifyContent: 'center',
- alignItems: 'center',
-        padding: 20,
+        alignItems: 'center',
+        //padding: 20,
         marginTop: 50, // Keep some top margin
     },
     loadingText: { // Style for the "Loading..." text
@@ -1847,5 +1851,10 @@ const newStyles = StyleSheet.create({
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    chatboxModalContainer: { // New style for the chatbox container in the modal
+        width: '90%',
+        height: Dimensions.get('window').height * 0.9, // Set height to 90% of screen height
+        // GeneralChatbox will fill this container.
     },
 });

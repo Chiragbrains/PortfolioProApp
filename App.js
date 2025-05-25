@@ -80,7 +80,7 @@ const MenuDrawer = ({ visible, onClose, onImportPress, onClearDataPress, onDisco
 
 // Bottom Tab Navigator
 const BottomNavBar = ({ activeTab, setActiveTab }) => (
-    <View style={newStyles.navBar} pointerEvents="box-none" collapsable={false}>
+    <View style={newStyles.navBar}>
         <TouchableOpacity
             style={newStyles.navItem}
             onPress={() => setActiveTab('portfolio')}
@@ -1275,18 +1275,6 @@ const newStyles = StyleSheet.create({
         borderTopColor: '#E0E7F1',
         backgroundColor: '#FFFFFF',
         paddingBottom: Platform.OS === 'ios' ? 10 : 0, // Padding for home indicator
-        // Web specific styles
-        position: 'fixed',
-        left: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: 100,
-        userSelect: 'none',
-        touchAction: 'none',
-        transform: 'scale(1)', // Prevent zoom scaling on web
-        WebkitUserSelect: 'none',
-        WebkitTouchCallout: 'none',
-        WebkitTapHighlightColor: 'transparent',
     },
     navItem: {
         flex: 1,

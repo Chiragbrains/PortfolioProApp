@@ -17,6 +17,7 @@ import { TrendingUp, BarChart3, Target, Zap, Users, DollarSign, Activity, Eye } 
 
 const screenWidth = Dimensions.get('window').width;
 const screenHeight = Dimensions.get('window').height;
+const pieChartSize = Math.max(160, Math.min(screenWidth * 0.6, 320)); // Responsive size for pie chart
 
 const Dashboard = () => {
   const { supabaseClient } = useSupabaseConfig();
@@ -358,7 +359,7 @@ const Dashboard = () => {
 
   const renderChartNavigation = () => {
     const navItems = [
-      { type: 'valueTrend', label: 'Value Trend', icon: TrendingUp, color: 'from-purple-600 to-purple-700' },
+      { type: 'valueTrend', label: 'Performance', icon: TrendingUp, color: 'from-purple-600 to-purple-700' },
       { type: 'weeklyPnl', label: 'Weekly P&L', icon: BarChart3, color: 'from-cyan-600 to-cyan-700' },
       { type: 'allocation', label: 'Allocation', icon: Target, color: 'from-emerald-600 to-emerald-700' },
     ];
@@ -542,7 +543,7 @@ const Dashboard = () => {
       case 'allocation':
         return (
           <View style={{ alignItems: 'center', paddingVertical: 20 }}>
-            <View style={[styles.allocationContainer]}>
+            <View style={[styles.allocationContainer, { width: '100%' }]}> {/* Ensure full width for flex */}
               <View style={styles.allocationLegend}>
                 {chartData.map((item, index) => (
                   <View key={index} style={[
@@ -563,14 +564,14 @@ const Dashboard = () => {
                 ))}
               </View>
               <View style={styles.allocationChart}>
-                <ResponsiveContainer width={chartWidth * 0.8} height={screenHeight * 0.3}>
+                <ResponsiveContainer width={pieChartSize} height={pieChartSize}>
                   <PieChart>
                     <Pie
                       data={chartData}
                       cx="50%"
                       cy="50%"
-                      outerRadius={110}
-                      innerRadius={50}
+                      outerRadius={pieChartSize / 2 - 10}
+                      innerRadius={pieChartSize / 2.8}
                       paddingAngle={5}
                       dataKey="value"
                       onPress={(data) => setSelectedAsset(data.text)}

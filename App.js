@@ -1,8 +1,8 @@
 // App.js - Rewritten UI Structure
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { // Added TouchableWithoutFeedback
     Modal, StyleSheet, Text, View, TouchableOpacity, ScrollView, SafeAreaView, Pressable,
-    ActivityIndicator, Alert, Platform, TextInput, Dimensions, FlatList // Added FlatList
+    ActivityIndicator, Alert, Platform, TextInput, Dimensions, FlatList, PanResponder // Added FlatList
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -12,6 +12,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'; // Import
 import ConnectionErrorModal from './ConnectionErrorModal'; // Assuming this exists
 import Dashboard from './Dashboard'; // Add Dashboard import
 import { TrendingUp, BarChart3, BarChart4, BarChartHorizontal, LineChart, PieChart, Users } from 'lucide-react';
+import { Animated as RNAnimated } from 'react-native';
 
 // --- Import Service Functions ---
 import {
@@ -402,6 +403,28 @@ export default function App() {
     const { supabaseClient, clearConfig } = useSupabaseConfig();
 
     const [isChatboxVisible, setIsChatboxVisible] = useState(false);
+    // --- Chatbox Slide-out Tab State ---
+    const [isChatboxOpen, setIsChatboxOpen] = useState(false);
+    const chatboxTabWidth = 36; // Thinner tab handle
+    const chatboxPanelWidth = 56; // Very thin/narrow chatbox panel
+    const chatboxPanelHeight = Math.min(480, Dimensions.get('window').height - 120);
+
+    // --- Animated value for slide ---
+    // Fix: Use Animated.Value from 'react-native' not 'react-native-reanimated' for web compatibility
+    const chatboxSlideAnim = useRef(new RNAnimated.Value(0)).current; // 0: closed, 1: open
+
+    useEffect(() => {
+        RNAnimated.timing(chatboxSlideAnim, {
+            toValue: isChatboxOpen ? 1 : 0,
+            duration: 260,
+            useNativeDriver: false,
+        }).start();
+    }, [isChatboxOpen]);
+
+    const chatboxLeft = chatboxSlideAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [-chatboxPanelWidth + chatboxTabWidth, 0],
+    });
 
     // --- Logic & Handlers (Keep ALL existing functions: loadData, handleConnectionErrorOk, handleFileSelect, processExcelData, handleBulkImport, handleAddStock, handleEditStock, handleUpdateStock, handleClearAllData, confirmClearAllData, handleDisconnect, confirmDisconnect, validateData, openAddStockModal) ---
     // --- Data Loading (Ensure it calls without forcing it) ---
@@ -1171,23 +1194,38 @@ export default function App() {
                     <Text style={newStyles.fabText}>+</Text>
                 </TouchableOpacity>
             )}
-            {/* Chatbox Toggle Button - Position it globally */}
-            {!isChatboxVisible && ( // Only show button if chatbox is not visible
+            {/* --- Round AI Chatbox Button (Fixed on left above nav) --- */}
+            {!isChatboxVisible && (
                 <TouchableOpacity
-                style={newStyles.chatToggleButton}
-                onPress={() => setIsChatboxVisible(true)}
+                    style={{
+                        position: 'absolute',
+                        left: 16,
+                        bottom: 88, // above bottom nav
+                        width: 56,
+                        height: 56,
+                        borderRadius: 28,
+                        backgroundColor: '#0066cc',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        zIndex: 100,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 1, height: 2 },
+                        shadowOpacity: 0.18,
+                        shadowRadius: 6,
+                    }}
+                    onPress={() => setIsChatboxVisible(true)}
+                    activeOpacity={0.85}
                 >
-                <Text style={newStyles.chatToggleButtonText}>AI</Text>
+                    <Text style={{ fontSize: 28, color: 'white' }}>💬</Text>
                 </TouchableOpacity>
             )}
-
             {/* Chatbox Modal */}
             <Modal
-                animationType="slide" // Or "fade"
+                animationType="slide"
                 transparent={true}
                 visible={isChatboxVisible}
                 onRequestClose={() => {
-                setIsChatboxVisible(false);
+                    setIsChatboxVisible(false);
                 }}
             >
                 <GestureHandlerRootView style={{ flex: 1 }}>
@@ -1200,7 +1238,44 @@ export default function App() {
                     </Pressable>
                 </GestureHandlerRootView>
             </Modal>
-
+            {/* --- Chatbox Slide-out Tab (Left side, very thin, handle on right) --- */}
+            <RNAnimated.View
+                style={{
+                    position: 'absolute',
+                    left: chatboxLeft,
+                    top: 500, // below header
+                    width: 36, // smaller width
+                    height: 72, // smaller height
+                    opacity: 1,
+                    zIndex: 50,
+                    flexDirection: 'row-reverse',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 2, height: 2 },
+                    shadowOpacity: 0.01,
+                    shadowRadius: 8,
+                    elevation: 8,
+                }}
+            >
+                <TouchableOpacity
+                    style={{
+                        width: 36, // match width for label
+                        height: 72,
+                        backgroundColor: '#0066cc',
+                        opacity: 0.85,
+                        borderTopLeftRadius: 14,
+                        borderBottomLeftRadius: 14,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        flexDirection: 'column',
+                    }}
+                    onPress={() => setIsChatboxVisible(true)}
+                    activeOpacity={0.85}
+                >
+                    <Text style={{ color: 'white', fontSize: 11, fontWeight: 'bold', transform: [{ rotate: '-90deg' }], letterSpacing: 1, width: 60, textAlign: 'center' }}>
+                        CHATBOX
+                    </Text>
+                </TouchableOpacity>
+            </RNAnimated.View>
             {/* --- Modals & Menu (Keep existing components/logic) --- */}
             <MenuDrawer
                 visible={menuVisible}
@@ -1452,7 +1527,7 @@ const newStyles = StyleSheet.create({
         fontSize: 15,
         borderWidth: 1,
         borderColor: '#E0E7F1',
-    },
+       },
     accountCard: {
         backgroundColor: '#FFFFFF',
         borderRadius: 10,
@@ -1479,10 +1554,11 @@ const newStyles = StyleSheet.create({
     //     alignItems: 'flex-start', // Align text left
      },
      accountHeaderMiddle: { // New style for middle content
+        
          width: 200, // Give the middle section a fixed width (adjust as needed)
         // alignItems: 'center', // Center value and P&L vertically
      },
-    accountHeaderRight: { // New style for right content
+       accountHeaderRight: { // New style for right content
         // This view is no longer used for value/pnl, only the icon
         //alignItems: 'flex-end', // Keep if needed for icon alignment
         flexDirection: 'row',
@@ -1766,8 +1842,8 @@ const newStyles = StyleSheet.create({
     },
     chatToggleButton: {
         position: 'absolute',
-        right: 20,
-        bottom: 80,
+        right: 10,
+        bottom: 20, // Lowered from 80 to 20 to bring the chatbox button closer to the bottom/tab bar
         width: 50,
         height: 50,
         borderRadius: 25,

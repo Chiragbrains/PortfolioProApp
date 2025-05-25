@@ -16,6 +16,7 @@ import {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { GROQ_API_KEY, ALPHA_VANTAGE_API_KEY } from '@env'; // Import ALPHA_VANTAGE_API_KEY
 import { useSupabaseConfig } from './SupabaseConfigContext'; // Import hook
+import { LinearGradient } from 'expo-linear-gradient';
 
 const screenHeight = Dimensions.get('window').height;
 
@@ -26,6 +27,7 @@ const GeneralChatbox = ({ onClose }) => {
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isPortfolioLoading, setIsPortfolioLoading] = useState(false); // Separate loading for portfolio queries
+  const [hasStarted, setHasStarted] = useState(false);
   const scrollViewRef = useRef();
   const { supabaseClient } = useSupabaseConfig();
 
@@ -657,33 +659,40 @@ Maintain a professional and helpful tone.`;
   // --- End of copied components ---
 
   return (
-    // This Pressable acts as a boundary for the chatbox, consuming presses within it.
-    <Pressable
-      style={styles.chatboxPressableBoundary} 
-      onPress={() => { /* Do nothing, just consume the press */ }}
-
-    >
+    <View style={styles.chatboxContainer}>
+      <LinearGradient
+        colors={['#6D28D9', '#3B0764', '#1A1A2E']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.topBar}
+      >
+        <Pressable
+          style={styles.topBarPressable}
+          onPress={() => {
+            if (!hasStarted) onClose();
+          }}
+        >
+          <Text style={styles.topBarTitle}>AI Chatbox</Text>
+          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <Text style={styles.closeButtonText}>✕</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </LinearGradient>
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingViewInternal} 
         behavior={Platform.OS === 'android' ? 'height' : 'padding'}
         keyboardVerticalOffset={0}
-        // onStartShouldSetResponder can be removed if the Pressable wrapper works
       >
         <View style={styles.chatContainer}>
           <GestureDetector gesture={dragGesture}>
             <View 
               style={styles.swipeHandleContainer}
-              onStartShouldSetResponderCapture={() => true} // Change to true to capture touch
+              onStartShouldSetResponderCapture={() => true}
             >
               <View style={styles.swipeHandle} />
             </View>
           </GestureDetector>
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Your Portfolio Chatbox</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Text style={styles.closeButtonText}>Close</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Removed the header with 'Your Portfolio Chatbox' and close button below the purple bar */}
           <ScrollView
             ref={scrollViewRef}
             style={styles.messagesContainer}
@@ -702,14 +711,11 @@ Maintain a professional and helpful tone.`;
                       {renderFallbackResults(msg.rawData)}
                     </>
                   ) : (
-                    // This is the problematic part when the above conditions are false
-                    // AND msg.rawData is also falsy or empty
                     <Text style={portfolioQueryStyles.llmParagraph}>{msg.text || "No information found for your query."}</Text>
                   )}
                 </View>
-              ) : msg.type === 'info' ? ( // Handle info messages
+              ) : msg.type === 'info' ? (
                 <View key={msg.id} style={[styles.messageBubble, styles.botMessage, styles.infoMessage]}>
-                  {/* For 'info' messages, we typically just want to display the msg.text */}
                   <Text style={styles.botMessageText}>{msg.text}</Text>
                 </View>
               ) : (
@@ -745,15 +751,56 @@ Maintain a professional and helpful tone.`;
           </View>
         </View>
       </KeyboardAvoidingView>
-    </Pressable>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  chatboxPressableBoundary: { // New style for the outer Pressable
-    // Give KAV the explicit height. It will be positioned at the bottom by App.js's modalOverlay.
-    height: screenHeight * 0.9, // Set KAV height to the intended visual height of the chatbox
-    width: '90%', 
+  chatboxContainer: {
+    flex: 1,
+    backgroundColor: '#18122B', // Deep dark background
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    overflow: 'hidden',
+    width: '90%', // Set width to 90% of the page
+    alignSelf: 'center', // Center the chatbox horizontally
+  },
+  topBar: {
+    height: 60,
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  topBarPressable: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    height: '100%',
+  },
+  topBarTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  closeButton: {
+    padding: 8,
+    borderRadius: 16,
+    backgroundColor: '#8b5cf6',
+    marginLeft: 10,
+  },
+  closeButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   keyboardAvoidingViewInternal: { // Style for the KAV, now filling the Pressable
     flex: 1, // Make KAV fill the Pressable wrapper
@@ -781,25 +828,6 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 2.5,
     backgroundColor: '#B0B0B0', // A visible grey color for the handle
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  closeButton: {
-    padding: 5,
-  },
-  closeButtonText: {
-    fontSize: 16,
-    color: '#007AFF',
   },
   messagesContainer: {
     flex: 1,
@@ -836,6 +864,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#000000', // Default black for bot, user text color can be set if needed
   },
+  chatContent: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: '#18122B',
+  },
   inputContainer: {
     flexDirection: 'row',
     padding: 10,
@@ -845,24 +878,20 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#B0B0B0',
-    borderRadius: 20,
-    paddingHorizontal: 15,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-    marginRight: 10,
+    color: '#fff',
     fontSize: 16,
+    backgroundColor: 'transparent',
   },
   sendButton: {
-    backgroundColor: '#1565C0',
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 20,
+    marginLeft: 10,
+    backgroundColor: '#10b981',
+    borderRadius: 16,
+    padding: 8,
   },
   sendButtonText: {
-    color: 'white',
-    fontSize: 16,
+    color: '#fff',
     fontWeight: 'bold',
+    fontSize: 16,
   },
   loadingContainer: {
     alignSelf: 'flex-start',

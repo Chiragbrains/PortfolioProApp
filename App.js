@@ -13,6 +13,7 @@ import ConnectionErrorModal from './ConnectionErrorModal'; // Assuming this exis
 import Dashboard from './Dashboard'; // Add Dashboard import
 import { TrendingUp, BarChart3, BarChart4, BarChartHorizontal, LineChart, PieChart, Users } from 'lucide-react';
 import { Animated as RNAnimated } from 'react-native';
+import PortfolioSummary from './PortfolioSummary'; // Import PortfolioSummary
 
 // --- Import Service Functions ---
 import {
@@ -962,43 +963,23 @@ export default function App() {
 
     // --- Render Active Tab Content ---
     const renderActiveTabContent = () => {
+        const formattedTimestamp = formatTimestamp(lastRefreshedTimestamp);
+        const activeHoldings = summaryData.filter(s => s.total_quantity && s.total_quantity > 0);
+        const sortedHoldings = [...activeHoldings].sort((a, b) => {
+            if (portfolioSortBy === 'value') {
+                return (b.market_value || 0) - (a.market_value || 0);
+            } else if (portfolioSortBy === 'ticker') {
+                return (a.ticker || '').localeCompare(b.ticker || '');
+            } else if (portfolioSortBy === 'pnl') {
+                return (b.pnl_dollar || 0) - (a.pnl_dollar || 0);
+            }
+            return 0;
+        });
         switch (activeTab) {
             case 'portfolio':
-                // Filter out zero quantity holdings first
-                const activeHoldings = (summaryData || []).filter(stock => stock.total_quantity && stock.total_quantity > 0);
-
-                // Apply search filter
-                const searchedHoldings = !portfolioSearchTerm ? activeHoldings : activeHoldings.filter(
-                    stock => {
-                        const termLower = portfolioSearchTerm.toLowerCase();
-                        const tickerMatch = (stock.ticker || '').toLowerCase().includes(termLower);
-                        // Also check company name if it exists
-                        const nameMatch = (stock.company_name || '').toLowerCase().includes(termLower);
-                        return tickerMatch || nameMatch; // Match if either ticker or name includes the term
-                    }
-                );
-
-                // Apply sorting
-                const sortedHoldings = [...searchedHoldings].sort((a, b) => {
-                    switch (portfolioSortBy) {
-                        case 'pnl': return (b.pnl_dollar || 0) - (a.pnl_dollar || 0);
-                        case 'value': return (b.market_value || 0) - (a.market_value || 0); 
-                        case 'ticker': return (a.ticker || '').localeCompare(b.ticker || ''); // Default sort
-                        default: return 0;
-                    }
-                });
-                const formattedTimestamp = formatTimestamp(lastRefreshedTimestamp);
-
                 return (
-                    <View style={{ flex: 1 }}>
-                        <DashboardSummary
-                            summaryData={summaryData}
-                            isCollapsed={isSummaryCollapsed}
-                            onToggleCollapse={toggleSummaryCollapse}
-                            isValueVisible={isValueVisible}
-                            onToggleVisibility={toggleValueVisibility}
-                        />
-
+                    <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
+                        <PortfolioSummary summaryData={summaryData} onMenuPress={() => setMenuVisible(true)} />
                         {/* --- Last Updated Timestamp --- */}
                         {formattedTimestamp && (
                             <View style={newStyles.timestampContainer}>
@@ -1069,7 +1050,7 @@ export default function App() {
                                 //ListHeaderComponent={<Text style={newStyles.listHeader}>Holdings</Text>}
                             />
                         )}
-                    </View>
+                    </ScrollView>
                 );
             case 'accountDetail':
                  const accountNames = Object.keys(filteredGroupedAccounts).sort();
@@ -1643,7 +1624,7 @@ const newStyles = StyleSheet.create({
     },
     transactionPnl: { // Style for P&L in transaction row
         fontSize: 12,
-        fontWeight: '500',
+               fontWeight: '500',
     },
     transactionValue: { // Keep this if needed elsewhere, otherwise remove
         // fontSize: 14,

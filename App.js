@@ -433,17 +433,23 @@ export default function App() {
 
     // --- Effects ---
     useEffect(() => {
+        if (!supabaseClient) {
+            console.log("No Supabase client available for subscription");
+            return;
+        }
         // Set up portfolio subscription
-        const subscription = setupPortfolioSubscription((payload) => {
+        const subscription = setupPortfolioSubscription(supabaseClient, (payload) => {
             console.log('Portfolio updated:', payload);
             // Handle any UI updates needed when portfolio changes
         });
 
         // Cleanup subscription on unmount
         return () => {
-            subscription.unsubscribe();
+            if (subscription) {
+                subscription.unsubscribe();
+            }
         };
-    }, []);
+    }, [supabaseClient]);
 
     // --- Data Loading (Ensure it calls without forcing it) ---
       const loadData = useCallback(async (showPopup = true) => {

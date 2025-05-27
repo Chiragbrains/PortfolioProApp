@@ -1,7 +1,6 @@
 import { refreshPortfolioEmbeddings } from './embeddingService';
-import { useSupabaseConfig } from '../SupabaseConfigContext';
 
-export const updatePortfolioData = async (newData) => {
+export const updatePortfolioData = async (supabaseClient, newData) => {
   try {
     // Update portfolio data in Supabase
     const { data, error } = await supabaseClient
@@ -11,7 +10,7 @@ export const updatePortfolioData = async (newData) => {
     if (error) throw error;
 
     // After successful update, refresh embeddings
-    await refreshPortfolioEmbeddings();
+    await refreshPortfolioEmbeddings(supabaseClient);
     
     return { data, error: null };
   } catch (error) {
@@ -21,7 +20,7 @@ export const updatePortfolioData = async (newData) => {
 };
 
 // Add this function to handle batch updates
-export const batchUpdatePortfolioData = async (updates) => {
+export const batchUpdatePortfolioData = async (supabaseClient, updates) => {
   try {
     // Update portfolio data in Supabase
     const { data, error } = await supabaseClient
@@ -31,7 +30,7 @@ export const batchUpdatePortfolioData = async (updates) => {
     if (error) throw error;
 
     // After successful batch update, refresh embeddings
-    await refreshPortfolioEmbeddings();
+    await refreshPortfolioEmbeddings(supabaseClient);
     
     return { data, error: null };
   } catch (error) {
@@ -41,7 +40,12 @@ export const batchUpdatePortfolioData = async (updates) => {
 };
 
 // Set up real-time subscription for portfolio updates
-export const setupPortfolioSubscription = (onUpdate) => {
+export const setupPortfolioSubscription = (supabaseClient, onUpdate) => {
+  if (!supabaseClient) {
+    console.error("Supabase client is required for subscription");
+    return null;
+  }
+
   const subscription = supabaseClient
     .channel('portfolio_changes')
     .on(
@@ -56,7 +60,7 @@ export const setupPortfolioSubscription = (onUpdate) => {
         
         // Refresh embeddings after any change
         try {
-          await refreshPortfolioEmbeddings();
+          await refreshPortfolioEmbeddings(supabaseClient);
           console.log('Embeddings refreshed after portfolio update');
         } catch (error) {
           console.error('Error refreshing embeddings:', error);
@@ -74,9 +78,9 @@ export const setupPortfolioSubscription = (onUpdate) => {
 };
 
 // Function to manually trigger embedding refresh
-export const triggerEmbeddingRefresh = async () => {
+export const triggerEmbeddingRefresh = async (supabaseClient) => {
   try {
-    await refreshPortfolioEmbeddings();
+    await refreshPortfolioEmbeddings(supabaseClient);
     console.log('Embeddings refreshed successfully');
     return { success: true };
   } catch (error) {

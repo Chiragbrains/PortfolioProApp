@@ -9,7 +9,6 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "dev": "expo start --dev-client"
-    }
   },
   "dependencies": {
     "@aws-amplify/ui-react": "^6.11.0",

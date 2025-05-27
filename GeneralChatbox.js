@@ -892,6 +892,7 @@ Keep responses concise and focused on the data provided.`
 
   return (
     <View style={styles.chatboxContainer}>
+      {/* Top Bar (Header) */}
       <LinearGradient
         colors={['#6D28D9', '#3B0764', '#1A1A2E']}
         start={{ x: 0, y: 0 }}
@@ -920,12 +921,24 @@ Keep responses concise and focused on the data provided.`
           </TouchableOpacity>
         </View>
       </LinearGradient>
-      <View style={styles.mainContent}>
+      {/* Search Field (Always visible) */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search messages..."
+          placeholderTextColor="#8A94A6"
+          // Add search logic if needed
+        />
+      </View>
+      {/* Messages Area (Scrollable) */}
+      <View style={styles.messagesWrapper}>
         <ScrollView
           ref={scrollViewRef}
           style={styles.messagesContainer}
           contentContainerStyle={styles.messagesContentContainer}
+          keyboardShouldPersistTaps="handled"
         >
+          {/* ... message rendering ... */}
           {messages.map((msg) => (
             <View
               key={msg.id}
@@ -940,10 +953,10 @@ Keep responses concise and focused on the data provided.`
               {msg.role === 'assistant' && msg.mode && (
                 <View style={styles.modeIndicator}>
                   <Text style={styles.modeIndicatorText}>
-                    {msg.mode === 'rag-sql' ? 'SQL RAG' : 
-                     msg.mode === 'rag-embedding' ? 'Embedding RAG' : 
-                     msg.mode === 'standard' ? 'Standard AI' : 
-                     msg.mode === 'error' ? 'Error' : ''}
+                    {msg.mode === 'rag-sql' ? 'SQL RAG' :
+                      msg.mode === 'rag-embedding' ? 'Embedding RAG' :
+                        msg.mode === 'standard' ? 'Standard AI' :
+                          msg.mode === 'error' ? 'Error' : ''}
                   </Text>
                 </View>
               )}
@@ -955,47 +968,43 @@ Keep responses concise and focused on the data provided.`
             </View>
           )}
         </ScrollView>
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            value={inputText}
-            onChangeText={setInputText}
-            placeholder={`Ask about your portfolio ${isRAGEnabled ? '(RAG Enabled)' : '(Standard AI)'}...`}
-            placeholderTextColor="rgba(0,0,0,0.4)"
-            onSubmitEditing={handleSend}
-            returnKeyType="send"
-            editable={!isLoading}
-            multiline
-          />
-          <TouchableOpacity 
-            style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]} 
-            onPress={handleSend} 
-            disabled={!inputText.trim() || isLoading}
-          >
-            <Text style={styles.sendButtonText}>Send</Text>
-          </TouchableOpacity>
-        </View>
       </View>
+      {/* Input Field (Always at bottom) */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
+        style={styles.inputContainer}
+      >
+        <TextInput
+          style={styles.input}
+          value={inputText}
+          onChangeText={setInputText}
+          placeholder={`Ask about your portfolio ${isRAGEnabled ? '(RAG Enabled)' : '(Standard AI)'}...`}
+          placeholderTextColor="rgba(0,0,0,0.4)"
+          onSubmitEditing={handleSend}
+          returnKeyType="send"
+          editable={!isLoading}
+          multiline
+        />
+        <TouchableOpacity
+          style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]}
+          onPress={handleSend}
+          disabled={!inputText.trim() || isLoading}
+        >
+          <Text style={styles.sendButtonText}>Send</Text>
+        </TouchableOpacity>
+      </KeyboardAvoidingView>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   chatboxContainer: {
-    height: '95vh',
-    width: '80%',
-    maxWidth: 1200,
-    margin: 120,
+    flex: 1,
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
     overflow: 'hidden',
-    display: 'flex',
     flexDirection: 'column',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
   },
   topBar: {
     height: 70,
@@ -1054,14 +1063,12 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   inputContainer: {
-    height: 80,
     flexDirection: 'row',
-    padding: 10,
-    paddingRight: 5,
+    alignItems: 'center',
     borderTopWidth: 1,
     borderTopColor: '#E0E7F1',
-    alignItems: 'center',
     backgroundColor: '#FFFFFF',
+    padding: 10,
   },
   input: {
     flex: 1,
@@ -1154,6 +1161,24 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: 'rgba(0, 0, 0, 0.6)',
     fontWeight: '500',
+  },
+  searchContainer: {
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E7F1',
+  },
+  searchInput: {
+    flex: 1,
+    color: '#000000',
+    fontSize: 16,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 5,
+  },
+  messagesWrapper: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
   },
 });
 

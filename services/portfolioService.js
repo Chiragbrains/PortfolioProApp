@@ -1,5 +1,5 @@
 import { refreshPortfolioEmbeddings } from './embeddingService';
-import { supabaseClient } from './supabaseClient';
+import { useSupabaseConfig } from '../SupabaseConfigContext';
 
 export const updatePortfolioData = async (newData) => {
   try {
@@ -83,4 +83,10 @@ export const triggerEmbeddingRefresh = async () => {
     console.error('Error refreshing embeddings:', error);
     return { success: false, error };
   }
+};
+
+// Update any functions that use supabaseClient to get it from context
+export const fetchPortfolioSummary = async (supabaseClient) => {
+  if (!supabaseClient) throw new Error("Supabase client is required");
+  // ... rest of the function
 }; 

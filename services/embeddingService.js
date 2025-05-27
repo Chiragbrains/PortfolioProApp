@@ -1,5 +1,5 @@
 // services/embeddingService.js
-import { supabaseClient } from './supabaseClient';
+import { useSupabaseConfig } from '../SupabaseConfigContext';
 import { HF_API_TOKEN } from '@env';
 
 // Function to generate embeddings using Hugging Face
@@ -33,8 +33,7 @@ export async function generateEmbedding(text) {
 export async function updatePortfolioSummaryEmbeddings() {
   try {
     // Fetch all portfolio summaries
-    const { data: summaries, error } = await supabaseClient
-      .from('portfolio_summary')
+    const { data: summaries, error } = await useSupabaseConfig().from('portfolio_summary')
       .select('*');
 
     if (error) throw error;
@@ -48,8 +47,7 @@ export async function updatePortfolioSummaryEmbeddings() {
       
       if (embedding) {
         // Update the summary with the new embedding
-        const { error: updateError } = await supabaseClient
-          .from('portfolio_summary')
+        const { error: updateError } = await useSupabaseConfig().from('portfolio_summary')
           .update({ embedding })
           .eq('ticker', summary.ticker);
 
@@ -65,7 +63,8 @@ export async function updatePortfolioSummaryEmbeddings() {
 }
 
 // Function to update embeddings when portfolio data changes
-export async function refreshPortfolioEmbeddings() {
+export const refreshPortfolioEmbeddings = async (supabaseClient) => {
+  if (!supabaseClient) throw new Error("Supabase client is required");
   try {
     await updatePortfolioSummaryEmbeddings();
     console.log('Portfolio summary embeddings updated successfully');

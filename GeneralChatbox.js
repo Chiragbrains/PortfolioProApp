@@ -540,6 +540,10 @@ Maintain a professional and helpful tone.`;
     }
   };
   const handleSend = async () => {
+    if (!supabaseClient) {
+      console.error("Supabase client not available");
+      return;
+    }
     if (!inputText.trim()) return;
 
     const userMessage = inputText.trim();

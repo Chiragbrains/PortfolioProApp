@@ -26,7 +26,9 @@ import {
 import AddStockForm from './AddStockForm';
 import { PortfolioGraph } from './PortfolioGraph';
 import { useSupabaseConfig } from './SupabaseConfigContext';
-import GeneralChatbox from './GeneralChatbox'; // Import the new component
+import GeneralChatbox from './GeneralChatbox'; // Existing
+import RAGChatbox from './RAGChatbox'; // Import the new RAG Chatbox
+import { setupPortfolioSubscription } from './services/portfolioService';
 
 // --- Helper Functions ---
 const formatNumber = (num) => {
@@ -59,7 +61,7 @@ const Header = ({ onMenuPress }) => (
 );
 
 // Menu Drawer (Keep existing logic and structure, just apply new styles if needed)
-const MenuDrawer = ({ visible, onClose, onImportPress, onClearDataPress, onDisconnectPress }) => {
+const MenuDrawer = ({ visible, onClose, onImportPress, onClearDataPress, onDisconnectPress, onToggleChatMode, currentChatMode }) => {
     if (!visible) return null;
     return (
         <View style={newStyles.menuOverlay}>
@@ -74,6 +76,9 @@ const MenuDrawer = ({ visible, onClose, onImportPress, onClearDataPress, onDisco
                 <TouchableOpacity style={newStyles.menuItem} onPress={onImportPress}><Text style={newStyles.menuItemText}>Import Excel File</Text></TouchableOpacity>
                 <TouchableOpacity style={newStyles.menuItem} onPress={onClearDataPress}><Text style={newStyles.menuItemText}>Clear All Data</Text></TouchableOpacity>
                 <View style={newStyles.menuSeparator} />
+                <TouchableOpacity style={newStyles.menuItem} onPress={onToggleChatMode}>
+                    <Text style={newStyles.menuItemText}>Chat Mode: {currentChatMode === 'rag' ? 'RAG AI' : 'Standard AI'}</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={newStyles.menuItem} onPress={onDisconnectPress}><Text style={[newStyles.menuItemText, newStyles.disconnectText]}>Disconnect Supabase</Text></TouchableOpacity>
             </View>
         </View>
@@ -377,7 +382,7 @@ export default function App() {
     const [selectedStock, setSelectedStock] = useState(null);
     const [isEditingStock, setIsEditingStock] = useState(false);
     const [menuVisible, setMenuVisible] = useState(false);
-    const [globalSearchTerm, setGlobalSearchTerm] = useState(''); // Used for Account Detail search
+    const [globalSearchTerm, setGlobalSearchTerm] = useState('');
     const [isClearDataModalVisible, setIsClearDataModalVisible] = useState(false);
     const [isPopupVisible, setIsPopupVisible] = useState(false);
     const [popupMessage, setPopupMessage] = useState('');
@@ -387,33 +392,31 @@ export default function App() {
     const [lastRefreshedTimestamp, setLastRefreshedTimestamp] = useState(null);
     const [isConnectionErrorModalVisible, setIsConnectionErrorModalVisible] = useState(false);
     const [connectionErrorMessage, setConnectionErrorMessage] = useState('');
-    // State for Account Detail View expansion
     const [expandedAccounts, setExpandedAccounts] = useState({});
-    // Add state specifically for portfolio search and sort
     const [portfolioSearchTerm, setPortfolioSearchTerm] = useState('');
-    const [portfolioSortBy, setPortfolioSortBy] = useState('ticker'); // Default sort by value
-    const [isSummaryCollapsed, setIsSummaryCollapsed] = useState(true); // Add this state, default to not collapsed
-    const toggleSummaryCollapse = () => {
-        setIsSummaryCollapsed(prevState => !prevState);
-    };
-    const [isValueVisible, setIsValueVisible] = useState(false); // Add this state, default to visible
-    const toggleValueVisibility = () => {
-        setIsValueVisible(prevState => !prevState);
-    };
+    const [portfolioSortBy, setPortfolioSortBy] = useState('ticker');
+    const [isSummaryCollapsed, setIsSummaryCollapsed] = useState(true);
+    const [isValueVisible, setIsValueVisible] = useState(false);
+    const [isChatboxVisible, setIsChatboxVisible] = useState(false);
+    const [chatboxImplementation, setChatboxImplementation] = useState('general');
+    const [isChatboxOpen, setIsChatboxOpen] = useState(false);
 
     const { supabaseClient, clearConfig } = useSupabaseConfig();
 
-    const [isChatboxVisible, setIsChatboxVisible] = useState(false);
-    // --- Chatbox Slide-out Tab State ---
-    const [isChatboxOpen, setIsChatboxOpen] = useState(false);
-    const chatboxTabWidth = 36; // Thinner tab handle
-    const chatboxPanelWidth = 56; // Very thin/narrow chatbox panel
+    // Chatbox animation constants
+    const chatboxTabWidth = 36;
+    const chatboxPanelWidth = 56;
     const chatboxPanelHeight = Math.min(480, Dimensions.get('window').height - 120);
 
-    // --- Animated value for slide ---
-    // Fix: Use Animated.Value from 'react-native' not 'react-native-reanimated' for web compatibility
-    const chatboxSlideAnim = useRef(new RNAnimated.Value(0)).current; // 0: closed, 1: open
+    // Animated value for slide
+    const chatboxSlideAnim = useRef(new RNAnimated.Value(0)).current;
 
+    // Toggle between general and RAG chatbox implementations
+    const toggleChatboxImplementation = () => {
+        setChatboxImplementation(prev => prev === 'general' ? 'rag' : 'general');
+    };
+
+    // Effect for chatbox animation
     useEffect(() => {
         RNAnimated.timing(chatboxSlideAnim, {
             toValue: isChatboxOpen ? 1 : 0,
@@ -422,12 +425,26 @@ export default function App() {
         }).start();
     }, [isChatboxOpen]);
 
+    // Calculate chatbox position
     const chatboxLeft = chatboxSlideAnim.interpolate({
         inputRange: [0, 1],
         outputRange: [-chatboxPanelWidth + chatboxTabWidth, 0],
     });
 
-    // --- Logic & Handlers (Keep ALL existing functions: loadData, handleConnectionErrorOk, handleFileSelect, processExcelData, handleBulkImport, handleAddStock, handleEditStock, handleUpdateStock, handleClearAllData, confirmClearAllData, handleDisconnect, confirmDisconnect, validateData, openAddStockModal) ---
+    // --- Effects ---
+    useEffect(() => {
+        // Set up portfolio subscription
+        const subscription = setupPortfolioSubscription((payload) => {
+            console.log('Portfolio updated:', payload);
+            // Handle any UI updates needed when portfolio changes
+        });
+
+        // Cleanup subscription on unmount
+        return () => {
+            subscription.unsubscribe();
+        };
+    }, []);
+
     // --- Data Loading (Ensure it calls without forcing it) ---
       const loadData = useCallback(async (showPopup = true) => {
         if (!supabaseClient || !clearConfig) {
@@ -1217,7 +1234,11 @@ export default function App() {
                         <View style={[newStyles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
                             <Pressable onPress={e => e.stopPropagation()}>
                                 <View style={newStyles.chatboxModalContainer}>
-                                    <GeneralChatbox onClose={() => setIsChatboxVisible(false)} />
+                                    {chatboxImplementation === 'rag' ? (
+                                        <RAGChatbox onClose={() => setIsChatboxVisible(false)} />
+                                    ) : (
+                                        <GeneralChatbox onClose={() => setIsChatboxVisible(false)} />
+                                    )}
                                 </View>                            </Pressable>
                         </View>
                     </Pressable>
@@ -1269,6 +1290,8 @@ export default function App() {
                     setMenuVisible(false); // Close menu first
                     triggerFileSelect();   // Call the file selection function
                 }}
+                onToggleChatMode={toggleChatboxImplementation}
+                currentChatMode={chatboxImplementation}
                 onClearDataPress={() => { setMenuVisible(false); handleClearAllData(); }}
                 onDisconnectPress={() => { setMenuVisible(false); handleDisconnect(); }}
             />
@@ -1706,7 +1729,20 @@ const newStyles = StyleSheet.create({
     menuSeparator: { height: 10, backgroundColor: '#f5f5f5', borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#e0e0e0', },
     disconnectText: { color: '#DC3545', },
     // Modal Styles (Copied and prefixed)
-    modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center', zIndex: 1500, padding: 20, },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center', // Changed from 'flex-end' to 'center'
+        alignItems: 'center', // Added to center horizontally
+    },
+
+    chatboxModalContainer: {
+        width: '90%',
+        height: '90%',
+        backgroundColor: 'transparent',
+        borderRadius: 18,
+        overflow: 'hidden',
+    },
     modalContainer: { backgroundColor: 'white', borderRadius: 12, padding: 25, width: '90%', maxWidth: 400, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, },
     modalTitle: { fontSize: 19, fontWeight: '600', marginBottom: 18, textAlign: 'center', color: '#1A2E4C', },
     modalMessage: { marginBottom: 30, fontSize: 15, lineHeight: 23, textAlign: 'center', color: '#495057', },
@@ -1845,16 +1881,5 @@ const newStyles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 20,
         fontWeight: 'bold',
-    },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    chatboxModalContainer: { // New style for the chatbox container in the modal
-        width: '90%',
-        height: Dimensions.get('window').height * 0.9, // Set height to 90% of screen height
-        // GeneralChatbox will fill this container.
     },
 });

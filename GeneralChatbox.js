@@ -12,22 +12,33 @@ import {
   Platform,
   Dimensions,
   Pressable,
+  Switch
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { GROQ_API_KEY, ALPHA_VANTAGE_API_KEY } from '@env'; // Import ALPHA_VANTAGE_API_KEY
 import { useSupabaseConfig } from './SupabaseConfigContext'; // Import hook
 import { LinearGradient } from 'expo-linear-gradient';
+import { generateEmbedding } from './services/embeddingService';
+import { searchRelevantContext } from './services/vectorSearchService';
+import { getRagLLMResponse, formatSQLResultsForChat } from './services/ragLlmService';
+import { saveContextToDatabase } from './services/contextStorageService';
 
 const screenHeight = Dimensions.get('window').height;
 
 const GeneralChatbox = ({ onClose }) => {
   const [messages, setMessages] = useState([
-    { id: '1', text: 'Hello! Interact with your Porfolio only.', sender: 'bot' },
+    { 
+      id: `welcome-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      role: 'assistant', 
+      content: 'Hello! I can help you analyze your portfolio. You can ask me about your holdings, performance, gains/losses, or any other portfolio-related questions. What would you like to know?',
+      mode: 'standard'
+    }
   ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isPortfolioLoading, setIsPortfolioLoading] = useState(false); // Separate loading for portfolio queries
+  const [isPortfolioLoading, setIsPortfolioLoading] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+  const [isRAGEnabled, setIsRAGEnabled] = useState(true);
   const scrollViewRef = useRef();
   const { supabaseClient } = useSupabaseConfig();
 
@@ -96,6 +107,7 @@ const GeneralChatbox = ({ onClose }) => {
 
   // --- Portfolio Query Logic (from PortfolioGraph.js, adapted) ---
   const interpretPortfolioQuery = async (userQuery) => {
+    console.log('[GeneralChatbox] interpretPortfolioQuery: START for query -', userQuery);
     const systemPrompt = `You are an expert SQL generator. Your task is to translate natural language questions into SQL SELECT queries for a specific table.
 Database Schema:
 Table Name: portfolio_summary
@@ -141,12 +153,14 @@ Examples:
 - User: "total value of my portfolio" -> SQL: SELECT SUM(market_value) FROM portfolio_summary
 - User: "what assets am I almost breaking even on?" -> SQL: SELECT * FROM portfolio_summary WHERE type != 'cash' AND ABS(pnl_percent) = (SELECT MIN(ABS(pnl_percent)) FROM portfolio_summary WHERE type != 'cash')`;
     try {
+        console.log('[GeneralChatbox] interpretPortfolioQuery: Preparing to call Groq for SQL generation.');
         const makeRequest = () => {
             return new Promise((resolve, reject) => {
                 const payload = { model: "meta-llama/llama-4-scout-17b-16e-instruct", messages: [{ role: "system", content: systemPrompt },{ role: "user", content: userQuery }], temperature: 0.5, max_tokens: 500 };
                 const xhr = new XMLHttpRequest();
                 xhr.timeout = 20000;
                 xhr.onreadystatechange = function() {
+                    // console.log(`[GeneralChatbox] interpretPortfolioQuery: XHR readyState: ${this.readyState}, status: ${this.status}`); // Can be very verbose
                     if (this.readyState === 4) {
                         if (this.status >= 200 && this.status < 300) { try { const response = JSON.parse(this.responseText); resolve(response); } catch (e) { reject(new Error(`Failed to parse response: ${this.responseText.substring(0, 100)}...`)); } }
                         else { reject(new Error(`Request failed with status ${this.status}: ${this.responseText}`)); }
@@ -160,22 +174,36 @@ Examples:
             });
         };
         const makeRequestWithRetries = async (retries = 1) => { // Reduced retries for chat
-            while (retries >= 0) { try { return await makeRequest(); } catch (error) { if (retries === 0) throw error; retries--; await new Promise(resolve => setTimeout(resolve, 500)); } }
+            let attempt = 0;
+            while (attempt <= retries) {
+                try {
+                    console.log(`[GeneralChatbox] interpretPortfolioQuery: Groq SQL generation attempt ${attempt + 1}`);
+                    return await makeRequest();
+                } catch (error) {
+                    console.warn(`[GeneralChatbox] interpretPortfolioQuery: Groq SQL generation attempt ${attempt + 1} failed:`, error.message);
+                    if (attempt === retries) throw error;
+                    attempt++;
+                    await new Promise(resolve => setTimeout(resolve, 500 + attempt * 500)); // Exponential backoff
+                }
+            }
         };
         const data = await makeRequestWithRetries();
+        console.log('[GeneralChatbox] interpretPortfolioQuery: Groq SQL generation response received.');
         if (data?.choices?.[0]?.message?.content) {
             const rawContent = data.choices[0].message.content;
+            console.log('[GeneralChatbox] interpretPortfolioQuery: Raw content from LLM -', rawContent.substring(0, 100) + "...");
             if (rawContent === 'QUERY_UNANSWERABLE') return 'QUERY_UNANSWERABLE';
             const sqlRegex = /```(?:sql)?\s*(SELECT[\s\S]*?)(?:;)?\s*```|^(SELECT[\s\S]*?)(?:;)?$/im;
             const match = rawContent.match(sqlRegex);
             let extractedSql = null;
             if (match) { extractedSql = (match[1] || match[2] || '').trim(); }
             else if (rawContent.toUpperCase().includes('SELECT')) { const selectRegex = /SELECT\s+[^;]*/i; const selectMatch = rawContent.match(selectRegex); if (selectMatch) { extractedSql = selectMatch[0].trim(); } }
-            if (extractedSql?.toUpperCase().startsWith('SELECT')) { return extractedSql.endsWith(';') ? extractedSql.slice(0, -1).trim() : extractedSql; }
+            if (extractedSql?.toUpperCase().startsWith('SELECT')) { console.log('[GeneralChatbox] interpretPortfolioQuery: Extracted SQL -', extractedSql); return extractedSql.endsWith(';') ? extractedSql.slice(0, -1).trim() : extractedSql; }
         }
+        console.log('[GeneralChatbox] interpretPortfolioQuery: No SQL extracted or content missing.');
         return null; // Indicate not a portfolio query / failed to extract SQL
     } catch (error) {
-        console.error('Error in interpretPortfolioQuery:', error);
+        console.error('[GeneralChatbox] interpretPortfolioQuery: ERROR -', error);
         return null; // Indicate not a portfolio query on error
     }
   };
@@ -183,21 +211,26 @@ Examples:
   const fetchPortfolioDataFromSupabase = async (sqlQuery) => {
     if (!supabaseClient) throw new Error("Supabase client not available.");
     if (!sqlQuery || typeof sqlQuery !== 'string' || !sqlQuery.trim().toUpperCase().startsWith('SELECT')) throw new Error("Invalid or non-SELECT SQL query provided.");
+    console.log('[GeneralChatbox] fetchPortfolioDataFromSupabase: START for SQL -', sqlQuery);
     const { data, error } = await supabaseClient.rpc('execute_sql', { sql_query: sqlQuery });
     if (error) { console.error("Supabase RPC error:", error); throw new Error(`Database query failed: ${error.message}`); }
+    console.log('[GeneralChatbox] fetchPortfolioDataFromSupabase: END - Data received from Supabase, rows:', data?.length);
     return data || [];
   };
 
   const getFormattedPortfolioTextResponseFromLLM = async (originalUserQuery, databaseResults) => {
+    console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: START for query -', originalUserQuery);
     if (!databaseResults || databaseResults.length === 0) return "No data was found to answer your question.";
     
     const safeUserQuery = String(originalUserQuery || '');
     const resultsSampleForLLM = Array.isArray(databaseResults) ? databaseResults.slice(0, 100) : []; // limit to 100 rows for LLM
     
     try {
+      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Preparing to call Groq for text formatting.');
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000); // Shorter timeout for chat
       
+      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Calling Groq API...');
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
         body: JSON.stringify({
@@ -242,13 +275,16 @@ Do NOT use markdown like **bold** or _italics_. Use clear sentence structure for
         })
       });
       clearTimeout(timeoutId);
+      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Groq API response status -', response.status);
       if (!response.ok) { const errorBody = await response.text(); throw new Error(`LLM Text Response API error: ${response.status} ${response.statusText} - ${errorBody}`);}
       const data = await response.json();
-      if (data.choices?.[0]?.message?.content) return data.choices[0].message.content.trim();
+      const formattedText = data.choices?.[0]?.message?.content.trim();
+      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Formatted text -', formattedText ? formattedText.substring(0,100) + "..." : "Empty");
+      if (formattedText) return formattedText;
       return "Could not get a formatted response from the assistant.";
     } catch (error) {
-      console.error("Error getting formatted portfolio text response from LLM:", error);
-      if (error.name === 'AbortError') return "The request to the AI assistant timed out.";
+      console.error("[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: ERROR -", error);
+      if (error.name === 'AbortError') { console.warn("[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Request timed out."); return "The request to the AI assistant timed out.";}
       return "Error processing your request with the AI assistant.";
     }
   };
@@ -257,7 +293,7 @@ Do NOT use markdown like **bold** or _italics_. Use clear sentence structure for
   // --- General LLM Response (existing) ---
   const fetchGeneralLLMResponse = async (userQuery) => {
     setIsLoading(true);
-    console.log('[GeneralChatbox] fetchGeneralLLMResponse initiated for query:', userQuery);
+    console.log('[GeneralChatbox] fetchGeneralLLMResponse: START for query -', userQuery);
     let finalBotResponseText = "Sorry, I encountered an issue processing your request."; // Default error
 
     try { // This is the main try block for the entire function
@@ -277,7 +313,7 @@ Extract the ticker symbol accurately. For example, in "what is the PE ratio of A
 If you cannot confidently identify a standard stock ticker for a specific data lookup, set intent to "unknown_or_general_chat".`;
 
       console.log('[GeneralChatbox] Phase 1: Calling LLM for intent extraction.');
-      const intentResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      const intentLlmCall = fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -294,30 +330,49 @@ If you cannot confidently identify a standard stock ticker for a specific data l
           // response_format: { type: "json_object" }, // Enable if Groq/Llama3 reliably supports it
         }),
       });
+      console.log('[GeneralChatbox] Phase 1: Awaiting intent LLM response...');
+      const intentResponse = await intentLlmCall;
+      console.log('[GeneralChatbox] Phase 1: Intent LLM response status -', intentResponse.status);
 
       if (!intentResponse.ok) {
         const errorBody = await intentResponse.text();
-        console.error("[GeneralChatbox] LLM Intent Extraction API Error:", errorBody.substring(0, 500));
         throw new Error(`Intent extraction API error ${intentResponse.status}`);
       }
 
-      const intentData = await intentResponse.json();
       let parsedIntent;
+      let rawIntentText = ''; // To store the raw text for logging if JSON parse fails
+
       try {
-        const content = intentData.choices?.[0]?.message?.content;
-        if (!content) throw new Error("LLM intent response content is empty.");
-        
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch && jsonMatch[0]) {
-          parsedIntent = JSON.parse(jsonMatch[0]);
+        console.log('[GeneralChatbox] Phase 1: Reading intent response as text...');
+        rawIntentText = await intentResponse.text(); // Read as text first
+        console.log('[GeneralChatbox] Phase 1: Raw intent text received -', rawIntentText.substring(0,150) + "...");
+        const intentData = JSON.parse(rawIntentText); // Then try to parse the entire response
+
+        // Now, intentData holds the parsed JSON from the overall response.
+        // Next, extract the 'content' string which is supposed to be another JSON.
+        const content = intentData.choices?.[0]?.message?.content; // This 'content' is a string
+        if (!content) {
+            console.warn("[GeneralChatbox] LLM intent response content string is empty within the JSON structure:", intentData);
+            // Fallback if the content string itself is missing or empty
+            parsedIntent = { intent: "unknown_or_general_chat", reason: "Empty content string from LLM" };
         } else {
-          console.warn("[GeneralChatbox] Could not find a clear JSON block in intent response, trying to parse whole content:", content.substring(0,200));
-          parsedIntent = JSON.parse(content); // This might fail if LLM adds non-JSON text
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch && jsonMatch[0]) {
+              parsedIntent = JSON.parse(jsonMatch[0]);
+            } else {
+              // If content itself is "Not Found" or not a JSON string.
+              console.warn("[GeneralChatbox] Could not find a clear JSON block in intent content string, trying to parse whole content string:", content.substring(0,200));
+              parsedIntent = JSON.parse(content); // This might fail if 'content' is "Not Found"
+            }
         }
         console.log('[GeneralChatbox] Parsed Intent from LLM:', parsedIntent);
       } catch (e) {
-        console.error("[GeneralChatbox] Error parsing intent JSON from LLM:", e, "Raw content:", intentData.choices?.[0]?.message?.content.substring(0,500));
-        parsedIntent = { intent: "unknown_or_general_chat" }; // Fallback
+        // This catches errors from parsing rawIntentText OR from parsing the 'content' string.
+        console.error(
+          "[GeneralChatbox] Error parsing intent JSON. Initial error during text->JSON or content string->JSON:", e, 
+          "Raw text response from API:", rawIntentText ? rawIntentText.substring(0,500) : "Not available (error before text read)"
+        );
+        parsedIntent = { intent: "unknown_or_general_chat", reason: "Failed to parse intent response or content string" }; // Fallback
       }
 
       // Phase 2: Act based on the intent - Fetch data from Alpha Vantage if needed
@@ -325,12 +380,13 @@ If you cannot confidently identify a standard stock ticker for a specific data l
       const { intent, ticker, data_type: dataType } = parsedIntent;
 
       if (intent === "specific_data_lookup" && ticker && ALPHA_VANTAGE_API_KEY) {
+        console.log('[GeneralChatbox] Phase 2: Intent is specific_data_lookup. Fetching from Alpha Vantage.');
         const upperTicker = ticker.toUpperCase();
-        console.log(`[GeneralChatbox] Phase 2: Intent is specific_data_lookup. Ticker: ${upperTicker}, DataType: ${dataType}`);
 
         let fetchedDetailsArray = [];
 
         // Attempt to fetch GLOBAL_QUOTE data (price, change, etc.)
+        console.log(`[GeneralChatbox] Phase 2.1: Fetching GLOBAL_QUOTE for ${upperTicker}`);
         try {
             console.log(`[GeneralChatbox] Fetching price for ${upperTicker} from Alpha Vantage...`);
             const quoteUrl = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${upperTicker}&apikey=${ALPHA_VANTAGE_API_KEY}`;
@@ -360,6 +416,7 @@ If you cannot confidently identify a standard stock ticker for a specific data l
         }
 
         // Attempt to fetch OVERVIEW data (PE, Market Cap, Description, etc.)
+        console.log(`[GeneralChatbox] Phase 2.2: Fetching OVERVIEW for ${upperTicker}`);
         try {
             console.log(`[GeneralChatbox] Fetching overview for ${upperTicker} from Alpha Vantage...`);
             const overviewUrl = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${upperTicker}&apikey=${ALPHA_VANTAGE_API_KEY}`;
@@ -410,7 +467,7 @@ If you cannot confidently identify a standard stock ticker for a specific data l
       }
 
       // Phase 3: Generate final response using LLM (Llama 3)
-      console.log("[GeneralChatbox] Phase 3: Data string for final LLM prompt:", retrievedDataString);
+      console.log("[GeneralChatbox] Phase 3: Preparing final LLM prompt with data:", retrievedDataString.substring(0,100) + "...");
       const finalResponseSystemPrompt = `You are a helpful AI assistant and also act as a financial analyst when asked about market topics. 
 The user asked the following question. This question was NOT answerable from their personal portfolio data.
 
@@ -427,7 +484,8 @@ If the retrieved data indicates an error, an API limit, or that data was not fou
 If the query is more general (e.g., "explain what a PE ratio is"), provide a concise, expert explanation.
 Maintain a professional and helpful tone.`;
     
-    // This inner try...catch was for the final LLM call specifically, which is fine.
+      // This inner try...catch was for the final LLM call specifically, which is fine.
+      console.log('[GeneralChatbox] Phase 3: Calling final LLM for response generation.');
       const finalLlmResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -444,20 +502,23 @@ Maintain a professional and helpful tone.`;
         }),
       });
 
+      console.log('[GeneralChatbox] Phase 3: Final LLM response status -', finalLlmResponse.status);
       if (!finalLlmResponse.ok) {
         const errorBody = await finalLlmResponse.text();
-        console.error("[GeneralChatbox] Final LLM Response API Error:", errorBody.substring(0,500));
         throw new Error(`Final LLM response API error ${finalLlmResponse.status}`);
       }
 
       const data = await finalLlmResponse.json();
       const botResponseText = data.choices?.[0]?.message?.content.trim();
+      console.log('[GeneralChatbox] Phase 3: Final bot response text -', botResponseText ? botResponseText.substring(0,100) + "..." : "Empty");
 
       if (botResponseText) {
         finalBotResponseText = botResponseText;
       } else {
+        console.warn("[GeneralChatbox] Phase 3: Empty response content from final LLM.");
         throw new Error("Empty response from LLM");
       }
+      console.log('[GeneralChatbox] fetchGeneralLLMResponse: END - Successfully processed.');
     } catch (error) { // This catch is for the main try block starting at line 261
       console.error("[GeneralChatbox] Error in fetchGeneralLLMResponse:", error);
       // Update finalBotResponseText if it hasn't been set by a more specific error message
@@ -465,59 +526,226 @@ Maintain a professional and helpful tone.`;
         finalBotResponseText = `Sorry, an error occurred: ${error.message.substring(0,150)}`;
       }
     } finally {      
+      console.log('[GeneralChatbox] fetchGeneralLLMResponse: FINALLY block - Updating messages.');
       setMessages(prevMessages => [
         ...prevMessages,
 { 
-          id: String(Date.now() + Math.random()), // Ensure unique ID
+          id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           text: finalBotResponseText, 
-          sender: 'bot' 
+          sender: 'bot',
+          mode: 'error'
         },
       ]);
       setIsLoading(false);
     }
   };
   const handleSend = async () => {
-    const userQuery = inputText.trim();
-    if (userQuery.length === 0) return;
+    if (!inputText.trim()) return;
 
-    const newUserMessage = { id: String(Date.now()), text: inputText.trim(), sender: 'user' };
-    setMessages(prevMessages => [...prevMessages, newUserMessage]);
+    const userMessage = inputText.trim();
+    console.log('[GeneralChatbox] handleSend: Starting with message:', userMessage);
+    console.log('[GeneralChatbox] handleSend: RAG Mode:', isRAGEnabled ? 'Enabled' : 'Disabled');
+    
     setInputText('');
-    setIsPortfolioLoading(true); // Use general loading for now, or a specific one
+    setMessages(prev => [...prev, { 
+      id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      role: 'user', 
+      content: userMessage 
+    }]);
+    setIsLoading(true);
 
     try {
-      const sqlQuery = await interpretPortfolioQuery(userQuery);
+      if (isRAGEnabled) {
+        // First try to interpret as a portfolio query
+        console.log('[GeneralChatbox] handleSend: Attempting to interpret as portfolio query...');
+        const sqlQuery = await interpretPortfolioQuery(userMessage);
+        
+        if (sqlQuery && sqlQuery !== 'QUERY_UNANSWERABLE') {
+          console.log('[GeneralChatbox] handleSend: Valid SQL query generated:', sqlQuery);
+          try {
+            const portfolioData = await fetchPortfolioDataFromSupabase(sqlQuery);
+            console.log('[GeneralChatbox] handleSend: Portfolio data retrieved:', portfolioData);
+            
+            if (portfolioData && portfolioData.length > 0) {
+              const formattedResponse = await getFormattedPortfolioTextResponseFromLLM(userMessage, portfolioData);
+              setMessages(prev => [...prev, { 
+                id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                role: 'assistant', 
+                content: formattedResponse,
+                mode: 'rag-sql'
+              }]);
+              return;
+            }
+          } catch (error) {
+            console.error('[GeneralChatbox] handleSend: Error fetching portfolio data:', error);
+          }
+        }
 
-      if (sqlQuery === 'QUERY_UNANSWERABLE') {
-        // Inform user and then trigger web search
-        const webSearchInfoMessageId = String(Date.now() + 1);
-        setMessages(prevMessages => [...prevMessages, {
-          id: webSearchInfoMessageId,
-          text: "I couldn't find that in your portfolio data. Let me check for general financial information...",
-          sender: 'bot', type: 'info' }]);
-        await fetchGeneralLLMResponse(userQuery); // Now call the general Groq LLM
-      } else if (sqlQuery) {
-        const results = await fetchPortfolioDataFromSupabase(sqlQuery);
-        const formattedText = await getFormattedPortfolioTextResponseFromLLM(userQuery, results);
-        setMessages(prevMessages => [...prevMessages, {
-          id: String(Date.now() + 1),
-          text: formattedText, // This is the primary text to display
-          sender: 'bot',
-          type: 'portfolio_response',
-          query: userQuery,
-          rawData: results, // Keep raw data if needed for a "show table" fallback
-          llmResponse: formattedText
-        }]);
+        // If portfolio query fails or no data found, try RAG with embeddings
+        console.log('[GeneralChatbox] handleSend: Falling back to RAG with embeddings...');
+        const queryEmbedding = await generateEmbedding(userMessage);
+        
+        if (!queryEmbedding) {
+          throw new Error("Could not generate embedding for the query");
+        }
+
+        const flattenedEmbedding = Array.isArray(queryEmbedding[0]) ? queryEmbedding[0] : queryEmbedding;
+        console.log('[GeneralChatbox] handleSend: Flattened embedding length:', flattenedEmbedding.length);
+
+        const { data: portfolioData, error } = await supabaseClient
+          .rpc('match_portfolio_summary', {
+            query_embedding: flattenedEmbedding,
+            match_threshold: 0.7,
+            match_count: 5
+          });
+
+        if (error) {
+          console.error('[GeneralChatbox] handleSend: Portfolio search error:', error);
+          throw error;
+        }
+        
+        console.log('[GeneralChatbox] handleSend: Portfolio data found:', portfolioData ? `${portfolioData.length} results` : 'No results');
+
+        if (portfolioData && portfolioData.length > 0) {
+          const response = await getRagLLMResponse(userMessage, portfolioData);
+          if (response) {
+            setMessages(prev => [...prev, { 
+              id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              role: 'assistant', 
+              content: response,
+              mode: 'rag-embedding'
+            }]);
+            return;
+          }
+        }
+
+        // If no portfolio data found or RAG failed, fall back to standard response
+        console.log('[GeneralChatbox] handleSend: No portfolio data found, falling back to standard response');
+        await getStandardLLMResponse(userMessage);
       } else {
-        // Not a portfolio query, or interpretation failed, proceed to general LLM
-        await fetchGeneralLLMResponse(userQuery); // Still call general LLM if interpretation fails
+        // Standard AI Mode
+        await getStandardLLMResponse(userMessage);
       }
     } catch (error) {
-      console.error("Error in handleSend (portfolio query path):", error);
-      setMessages(prevMessages => [...prevMessages, { id: String(Date.now() + 1), text: `Sorry, an error occurred: ${error.message}`, sender: 'bot' }]);
+      console.error('[GeneralChatbox] handleSend: Error occurred:', error);
+      setMessages(prev => [...prev, { 
+        id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        role: 'assistant', 
+        content: "I apologize, but I encountered an error. Please try again.",
+        mode: 'error'
+      }]);
     } finally {
-      setIsPortfolioLoading(false);
-      setIsLoading(false); // Ensure general loading is also turned off
+      setIsLoading(false);
+    }
+  };
+
+  // Function for standard LLM responses (without RAG)
+  const getStandardLLMResponse = async (userQuery) => {
+    console.log('[GeneralChatbox] getStandardLLMResponse: Starting with query:', userQuery);
+    
+    try {
+      console.log('[GeneralChatbox] getStandardLLMResponse: Preparing LLM request...');
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "llama3-8b-8192",
+          messages: [
+            {
+              role: "system",
+              content: `You are a helpful AI assistant that can answer questions about finance and investing.
+Keep responses concise, accurate, and focused on the user's question.
+If you don't know something, say so politely.`
+            },
+            { role: "user", content: userQuery }
+          ],
+          temperature: 0.7,
+        }),
+      });
+
+      console.log('[GeneralChatbox] getStandardLLMResponse: LLM API response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[GeneralChatbox] getStandardLLMResponse: LLM API error:', errorText);
+        throw new Error(`LLM API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[GeneralChatbox] getStandardLLMResponse: LLM response data received');
+      
+      const botResponse = data.choices?.[0]?.message?.content;
+      console.log('[GeneralChatbox] getStandardLLMResponse: Bot response extracted:', botResponse ? 'Success' : 'Failed');
+      
+      setMessages(prev => [...prev, { 
+        id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        role: 'assistant', 
+        content: botResponse,
+        mode: 'standard'
+      }]);
+    } catch (error) {
+      console.error('[GeneralChatbox] getStandardLLMResponse: Error:', error);
+      setMessages(prev => [...prev, { 
+        id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        role: 'assistant', 
+        content: "I apologize, but I encountered an error. Please try again.",
+        mode: 'error'
+      }]);
+    }
+  };
+
+  // Add logs to getRagLLMResponse function
+  const getRagLLMResponse = async (userQuery, portfolioData) => {
+    console.log('[GeneralChatbox] getRagLLMResponse: Starting with query:', userQuery);
+    console.log('[GeneralChatbox] getRagLLMResponse: Portfolio data available:', portfolioData ? `${portfolioData.length} items` : 'None');
+    
+    try {
+      console.log('[GeneralChatbox] getRagLLMResponse: Preparing LLM request...');
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "llama3-8b-8192",
+          messages: [
+            {
+              role: "system",
+              content: `You are a helpful AI assistant that provides information about the user's portfolio.
+Use the following portfolio data to answer the user's question:
+${JSON.stringify(portfolioData, null, 2)}
+
+If the data doesn't contain relevant information to answer the question, say so politely.
+Keep responses concise and focused on the data provided.`
+            },
+            { role: "user", content: userQuery }
+          ],
+          temperature: 0.7,
+        }),
+      });
+
+      console.log('[GeneralChatbox] getRagLLMResponse: LLM API response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[GeneralChatbox] getRagLLMResponse: LLM API error:', errorText);
+        throw new Error(`LLM API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[GeneralChatbox] getRagLLMResponse: LLM response data received');
+      
+      const botResponse = data.choices?.[0]?.message?.content;
+      console.log('[GeneralChatbox] getRagLLMResponse: Bot response extracted:', botResponse ? 'Success' : 'Failed');
+      
+      return botResponse;
+    } catch (error) {
+      console.error('[GeneralChatbox] getRagLLMResponse: Error:', error);
+      return null;
     }
   };
 
@@ -671,104 +899,103 @@ Maintain a professional and helpful tone.`;
             <View style={styles.swipeHandle} />
           </View>
         </GestureDetector>
-        <Pressable
-          style={styles.topBarPressable}
-          onPress={() => {
-            if (!hasStarted) onClose();
-          }}
-        >
+        <View style={styles.topBarContent}>
           <Text style={styles.topBarTitle}>AI Chatbox</Text>
+          <View style={styles.toggleContainer}>
+            <Text style={styles.toggleLabel}>RAG</Text>
+            <Switch
+              value={isRAGEnabled}
+              onValueChange={setIsRAGEnabled}
+              trackColor={{ false: '#767577', true: '#8A2BE2' }}
+              thumbColor={isRAGEnabled ? '#f4f3f4' : '#f4f3f4'}
+              ios_backgroundColor="#3e3e3e"
+            />
+          </View>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
             <Text style={styles.closeButtonText}>✕</Text>
           </TouchableOpacity>
-        </Pressable>
-      </LinearGradient>
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoidingViewInternal} 
-        behavior={Platform.OS === 'android' ? 'height' : 'padding'}
-        keyboardVerticalOffset={0}
-      >
-        <View style={styles.chatContainer}>
-          <ScrollView
-            ref={scrollViewRef}
-            style={styles.messagesContainer}
-            contentContainerStyle={styles.messagesContentContainer}
-          >
-            {messages.map(msg => (
-              msg.type === 'portfolio_response' ? (
-                <View key={msg.id} style={[styles.messageBubble, styles.botMessage, portfolioQueryStyles.portfolioMessageBubble]}>
-                  {/* ... existing portfolio response rendering ... */}
-                  {msg.llmResponse && !msg.llmResponse.toLowerCase().includes("error") && !msg.llmResponse.toLowerCase().includes("no data was found") ? (
-                    <FormattedLLMResponse text={msg.llmResponse} />
-                  ) : msg.rawData && msg.rawData.length > 0 ? (
-                    <>
-                      {msg.llmResponse && <Text style={portfolioQueryStyles.llmParagraph}>{msg.llmResponse}</Text>}
-                      <Text style={portfolioQueryStyles.llmParagraph}>Here's the data I found:</Text>
-                      {renderFallbackResults(msg.rawData)}
-                    </>
-                  ) : (
-                    <Text style={portfolioQueryStyles.llmParagraph}>{msg.text || "No information found for your query."}</Text>
-                  )}
-                </View>
-              ) : msg.type === 'info' ? (
-                <View key={msg.id} style={[styles.messageBubble, styles.botMessage, styles.infoMessage]}>
-                  <Text style={styles.botMessageText}>{msg.text}</Text>
-                </View>
-              ) : (
-                <View
-                  key={msg.id}
-                  style={[
-                    styles.messageBubble,
-                    msg.sender === 'user' ? styles.userMessage : styles.botMessage,
-                  ]}
-                >
-                  <Text style={msg.sender === 'user' ? styles.userMessageText : styles.botMessageText}>{msg.text}</Text>
-                </View>
-              )
-            ))}
-            {(isLoading || isPortfolioLoading) && (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="#007AFF" />
-              </View>
-            )}
-          </ScrollView>
-          <View style={styles.inputContainer}>
-            <TextInput
-              style={styles.input}
-              value={inputText}
-              onChangeText={setInputText}
-              placeholder="Ask info about your portfolio..."
-              placeholderTextColor="rgba(255, 255, 255, 0.6)"
-              onSubmitEditing={handleSend}
-              returnKeyType="send"
-            />
-            <TouchableOpacity style={styles.sendButton} onPress={handleSend} disabled={isLoading || isPortfolioLoading}>
-              <Text style={styles.sendButtonText}>Send</Text>
-            </TouchableOpacity>
-          </View>
         </View>
-      </KeyboardAvoidingView>
+      </LinearGradient>
+      <View style={styles.mainContent}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.messagesContainer}
+          contentContainerStyle={styles.messagesContentContainer}
+        >
+          {messages.map((msg) => (
+            <View
+              key={msg.id}
+              style={[
+                styles.messageBubble,
+                msg.role === 'user' ? styles.userMessage : styles.botMessage,
+              ]}
+            >
+              <Text style={msg.role === 'user' ? styles.userMessageText : styles.botMessageText}>
+                {msg.content}
+              </Text>
+              {msg.role === 'assistant' && msg.mode && (
+                <View style={styles.modeIndicator}>
+                  <Text style={styles.modeIndicatorText}>
+                    {msg.mode === 'rag-sql' ? 'SQL RAG' : 
+                     msg.mode === 'rag-embedding' ? 'Embedding RAG' : 
+                     msg.mode === 'standard' ? 'Standard AI' : 
+                     msg.mode === 'error' ? 'Error' : ''}
+                  </Text>
+                </View>
+              )}
+            </View>
+          ))}
+          {(isLoading || isPortfolioLoading) && (
+            <View key="loading" style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#007AFF" />
+            </View>
+          )}
+        </ScrollView>
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.input}
+            value={inputText}
+            onChangeText={setInputText}
+            placeholder={`Ask about your portfolio ${isRAGEnabled ? '(RAG Enabled)' : '(Standard AI)'}...`}
+            placeholderTextColor="rgba(0,0,0,0.4)"
+            onSubmitEditing={handleSend}
+            returnKeyType="send"
+            editable={!isLoading}
+            multiline
+          />
+          <TouchableOpacity 
+            style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]} 
+            onPress={handleSend} 
+            disabled={!inputText.trim() || isLoading}
+          >
+            <Text style={styles.sendButtonText}>Send</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   chatboxContainer: {
-    flex: 1,
-    backgroundColor: '#18122B', // Deep dark background
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    height: '95vh',
+    width: '80%',
+    maxWidth: 1200,
+    margin: 120,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
     overflow: 'hidden',
-    width: '100%', // Ensure this is 100% to fill the parent container from App.js
+    display: 'flex',
+    flexDirection: 'column',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 10,
-    },
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
   topBar: {
-    minHeight: 60,
-    paddingHorizontal: 18,
+    height: 70,
+    paddingHorizontal: 20,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     shadowColor: '#000',
@@ -777,72 +1004,30 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
-  topBarPressable: {
+  mainContent: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-    height: '100%',
-  },
-  topBarTitle: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  closeButton: {
-    padding: 8,
-    borderRadius: 16,
-    backgroundColor: '#8b5cf6',
-    marginLeft: 10,
-  },
-  closeButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  keyboardAvoidingViewInternal: { // Style for the KAV, now filling the Pressable
-    flex: 1, // Make KAV fill the Pressable wrapper
-    width: '100%', // Ensure KAV takes full width of its Pressable parent
-  },
-  chatContainer: {
-    // chatContainer should fill the KAV. KAV's behavior="padding" will adjust this.
-    flex: 1, 
-    width: '100%', // Add this to make the content area fill the width
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 10,
-  },
-  swipeHandleContainer: {
-    alignItems: 'center',
-    paddingTop: 10,
-    paddingBottom: 5,
-    width: '100%',
-  },
-  swipeHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)', // Semi-transparent white for better visibility on gradient
+    display: 'flex',
+    flexDirection: 'column',
+    height: 'calc(95vh - 140px)',
   },
   messagesContainer: {
-    flex: 1,
+    height: 'calc(95vh - 140px)',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 15,
+    overflowY: 'auto',
   },
   messagesContentContainer: {
-    padding: 10,
+    padding: 15,
+    paddingBottom: 20,
   },
   messageBubble: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 15,
-    marginBottom: 8,
-    maxWidth: '80%',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 18,
+    marginBottom: 12,
+    maxWidth: '85%',
+    minWidth: '20%',
   },
   userMessage: {
     backgroundColor: '#1565C0',
@@ -854,46 +1039,48 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     borderBottomLeftRadius: 5,
   },
-  infoMessage: { // Style for informational messages from the bot
-    backgroundColor: '#FFF9C4', // A light yellow, for example
-    borderColor: '#FFF59D',
-  },
   userMessageText: {
-    fontSize: 15,
+    fontSize: 16,
     color: '#FFFFFF',
+    lineHeight: 22,
   },
   botMessageText: {
-    fontSize: 15,
-    color: '#000000', // Default black for bot, user text color can be set if needed
-  },
-  chatContent: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: '#18122B',
+    fontSize: 16,
+    color: '#000000',
+    lineHeight: 22,
   },
   inputContainer: {
+    height: 80,
     flexDirection: 'row',
     padding: 10,
+    paddingRight: 5,
     borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
+    borderTopColor: '#E0E7F1',
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
   },
   input: {
     flex: 1,
-    color: '#000000', // Changed from '#FFFFFF' to black
+    color: '#000000',
     fontSize: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 8,
-    placeholderTextColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 5,
+    marginRight: 20,
+    minHeight: 48,
+    maxHeight: 120,
   },
   sendButton: {
-    marginLeft: 10,
+    marginLeft: 20,
     backgroundColor: '#10b981',
-    borderRadius: 16,
-    padding: 8,
+    borderRadius: 24,
+    padding: 12,
+    minWidth: 90,
+    alignItems: 'center',
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#BFBFDF',
   },
   sendButtonText: {
     color: '#fff',
@@ -902,74 +1089,177 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     alignSelf: 'flex-start',
+    padding: 15,
+  },
+  swipeHandleContainer: {
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 8,
+    width: '100%',
+  },
+  swipeHandle: {
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  topBarContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flex: 1,
+    paddingVertical: 12,
+  },
+  topBarTitle: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  toggleLabel: {
+    color: '#fff',
+    marginRight: 10,
+    fontSize: 16,
+  },
+  closeButton: {
     padding: 10,
+    borderRadius: 20,
+    backgroundColor: '#8b5cf6',
+    marginLeft: 12,
+  },
+  closeButtonText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  modeIndicator: {
+    position: 'absolute',
+    bottom: 4,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  modeIndicatorText: {
+    fontSize: 10,
+    color: 'rgba(0, 0, 0, 0.6)',
+    fontWeight: '500',
   },
 });
 
 // Styles for portfolio query results, adapted from PortfolioGraph.js
 const portfolioQueryStyles = StyleSheet.create({
   portfolioMessageBubble: {
-    backgroundColor: '#E8F0F9', // A slightly different background for portfolio responses
+    backgroundColor: '#E8F0F9',
     borderColor: '#C9DDF0',
     borderWidth: 1,
+    padding: 16, // Increased padding
   },
   llmTextResponseContainer: {
-    paddingVertical: 5, // Reduced padding for chat bubble
+    paddingVertical: 8,
   },
   llmParagraph: {
-    fontSize: 14, // Slightly smaller for chat
-    lineHeight: 20,
+    fontSize: 16, // Increased font size
+    lineHeight: 24, // Increased line height
     color: '#222',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   bulletItemContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 4,
-    paddingLeft: 5, // Less indent for chat
+    marginBottom: 6,
+    paddingLeft: 8,
   },
   bulletPoint: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#00529B', // Portfolio-specific bullet color
-    marginRight: 6,
+    fontSize: 16, // Increased font size
+    lineHeight: 24, // Increased line height
+    color: '#00529B',
+    marginRight: 8,
     fontWeight: 'bold',
   },
   bulletText: {
     flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 16, // Increased font size
+    lineHeight: 24, // Increased line height
     color: '#222',
   },
-  resultsEmptyText: { // Added for fallback table
-    fontSize: 14,
+  resultsEmptyText: {
+    fontSize: 16, // Increased font size
     color: '#666',
     textAlign: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   positiveChange: {
-    color: '#2E7D32', // Darker green
+    color: '#2E7D32',
+    fontWeight: '500', // Added font weight
   },
   negativeChange: {
-    color: '#C62828', // Darker red
+    color: '#C62828',
+    fontWeight: '500', // Added font weight
   },
-  // Fallback table styles (if you decide to implement the table display)
-  resultsTable: { marginTop: 8, borderWidth: 1, borderColor: '#CFD8DC', borderRadius: 4 },
-  resultsRowHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#B0BEC5', paddingBottom: 4, marginBottom: 4, backgroundColor: '#ECEFF1', },
-  resultsCellHeader: { flex: 1, fontSize: 11, fontWeight: 'bold', paddingHorizontal: 2, color: '#37474F', textTransform: 'capitalize', },
-  resultsRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#CFD8DC', paddingVertical: 4, },
-  resultsCell: { flex: 1, fontSize: 11, paddingHorizontal: 2, color: '#455A64', },
-  singleResultContainer: { paddingVertical: 8, alignItems: 'center', borderWidth: 1, borderColor: '#CFD8DC', borderRadius: 4, marginVertical: 5 },
-  singleResultKey: { fontSize: 13, color: '#546E7A', marginBottom: 2, },
-  singleResultValue: { fontSize: 16, fontWeight: '600', color: '#263238', },
-  valueAmount: { 
-    // This style is used by formatCurrency within renderFallbackResults
-    // It can be basic, as color is applied by getGainLossColor directly
-    // For example:
-    // fontSize: 11, // if used in table cells
-    // fontWeight: 'normal', // if used in table cells
+  resultsTable: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#CFD8DC',
+    borderRadius: 8,
+  },
+  resultsRowHeader: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#B0BEC5',
+    paddingVertical: 8,
+    marginBottom: 8,
+    backgroundColor: '#ECEFF1',
+  },
+  resultsCellHeader: {
+    flex: 1,
+    fontSize: 14, // Increased font size
+    fontWeight: 'bold',
+    paddingHorizontal: 8,
+    color: '#37474F',
+    textTransform: 'capitalize',
+  },
+  resultsRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#CFD8DC',
+    paddingVertical: 8,
+  },
+  resultsCell: {
+    flex: 1,
+    fontSize: 14, // Increased font size
+    paddingHorizontal: 8,
+    color: '#455A64',
+  },
+  singleResultContainer: {
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#CFD8DC',
+    borderRadius: 8,
+    marginVertical: 8,
+  },
+  singleResultKey: {
+    fontSize: 16, // Increased font size
+    color: '#546E7A',
+    marginBottom: 4,
+  },
+  singleResultValue: {
+    fontSize: 20, // Increased font size
+    fontWeight: '600',
+    color: '#263238',
+  },
+  valueAmount: {
+    fontSize: 14, // Increased font size
+    fontWeight: '500',
   },
 });
 
 
-export default GeneralChatbox;
+export { styles, portfolioQueryStyles, GeneralChatbox as default };

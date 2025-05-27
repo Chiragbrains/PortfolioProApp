@@ -7,6 +7,9 @@
 // registerRootComponent(App);
 // index.js or similar entry point
 import { registerRootComponent } from 'expo';
-import AppWrapper from './AppWrapper'; // <-- Import AppWrapper
+import AppWrapper from './AppWrapper';
 
-registerRootComponent(AppWrapper); // <-- Register AppWrapper
+// registerRootComponent calls AppRegistry.registerComponent('main', () => App);
+// It also ensures that whether you load the app in Expo Go or in a native build,
+// the environment is set up appropriately
+registerRootComponent(AppWrapper);

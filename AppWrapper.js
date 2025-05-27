@@ -47,4 +47,4 @@ const styles = StyleSheet.create({
     }
 });
 
-export default AppWrapper; // Make this the entry point in Expo/React Native
+export default AppWrapper;

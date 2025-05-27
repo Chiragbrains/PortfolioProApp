@@ -61,7 +61,7 @@ const Header = ({ onMenuPress }) => (
 );
 
 // Menu Drawer (Keep existing logic and structure, just apply new styles if needed)
-const MenuDrawer = ({ visible, onClose, onImportPress, onClearDataPress, onDisconnectPress, onToggleChatMode, currentChatMode }) => {
+const MenuDrawer = ({ visible, onClose, onImportPress, onClearDataPress, onDisconnectPress }) => {
     if (!visible) return null;
     return (
         <View style={newStyles.menuOverlay}>
@@ -76,9 +76,6 @@ const MenuDrawer = ({ visible, onClose, onImportPress, onClearDataPress, onDisco
                 <TouchableOpacity style={newStyles.menuItem} onPress={onImportPress}><Text style={newStyles.menuItemText}>Import Excel File</Text></TouchableOpacity>
                 <TouchableOpacity style={newStyles.menuItem} onPress={onClearDataPress}><Text style={newStyles.menuItemText}>Clear All Data</Text></TouchableOpacity>
                 <View style={newStyles.menuSeparator} />
-                <TouchableOpacity style={newStyles.menuItem} onPress={onToggleChatMode}>
-                    <Text style={newStyles.menuItemText}>Chat Mode: {currentChatMode === 'rag' ? 'RAG AI' : 'Standard AI'}</Text>
-                </TouchableOpacity>
                 <TouchableOpacity style={newStyles.menuItem} onPress={onDisconnectPress}><Text style={[newStyles.menuItemText, newStyles.disconnectText]}>Disconnect Supabase</Text></TouchableOpacity>
             </View>
         </View>
@@ -398,8 +395,6 @@ export default function App() {
     const [isSummaryCollapsed, setIsSummaryCollapsed] = useState(true);
     const [isValueVisible, setIsValueVisible] = useState(false);
     const [isChatboxVisible, setIsChatboxVisible] = useState(false);
-    const [chatboxImplementation, setChatboxImplementation] = useState('general');
-    const [isChatboxOpen, setIsChatboxOpen] = useState(false);
 
     const { supabaseClient, clearConfig } = useSupabaseConfig();
 
@@ -410,26 +405,6 @@ export default function App() {
 
     // Animated value for slide
     const chatboxSlideAnim = useRef(new RNAnimated.Value(0)).current;
-
-    // Toggle between general and RAG chatbox implementations
-    const toggleChatboxImplementation = () => {
-        setChatboxImplementation(prev => prev === 'general' ? 'rag' : 'general');
-    };
-
-    // Effect for chatbox animation
-    useEffect(() => {
-        RNAnimated.timing(chatboxSlideAnim, {
-            toValue: isChatboxOpen ? 1 : 0,
-            duration: 260,
-            useNativeDriver: false,
-        }).start();
-    }, [isChatboxOpen]);
-
-    // Calculate chatbox position
-    const chatboxLeft = chatboxSlideAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [-chatboxPanelWidth + chatboxTabWidth, 0],
-    });
 
     // --- Effects ---
     useEffect(() => {
@@ -1240,12 +1215,9 @@ export default function App() {
                         <View style={[newStyles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
                             <Pressable onPress={e => e.stopPropagation()}>
                                 <View style={newStyles.chatboxModalContainer}>
-                                    {chatboxImplementation === 'rag' ? (
-                                        <RAGChatbox onClose={() => setIsChatboxVisible(false)} />
-                                    ) : (
-                                        <GeneralChatbox onClose={() => setIsChatboxVisible(false)} />
-                                    )}
-                                </View>                            </Pressable>
+                                    <GeneralChatbox onClose={() => setIsChatboxVisible(false)} />
+                                </View>
+                            </Pressable>
                         </View>
                     </Pressable>
                 </GestureHandlerRootView>
@@ -1254,7 +1226,10 @@ export default function App() {
             <RNAnimated.View
                 style={{
                     position: 'absolute',
-                    left: chatboxLeft,
+                    left: chatboxSlideAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-chatboxPanelWidth + chatboxTabWidth, 0],
+                    }),
                     top: 500, // below header
                     width: 36, // smaller width
                     height: 72, // smaller height
@@ -1296,8 +1271,6 @@ export default function App() {
                     setMenuVisible(false); // Close menu first
                     triggerFileSelect();   // Call the file selection function
                 }}
-                onToggleChatMode={toggleChatboxImplementation}
-                currentChatMode={chatboxImplementation}
                 onClearDataPress={() => { setMenuVisible(false); handleClearAllData(); }}
                 onDisconnectPress={() => { setMenuVisible(false); handleDisconnect(); }}
             />

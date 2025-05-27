@@ -4,11 +4,12 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
-    "build": "npx expo export",
+    "build": "npx expo export --platform web",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
     "dev": "expo start --dev-client"
+    }
   },
   "dependencies": {
     "@aws-amplify/ui-react": "^6.11.0",

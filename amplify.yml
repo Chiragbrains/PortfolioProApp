@@ -4,17 +4,15 @@ frontend:
     preBuild:
       commands:
         - echo "Creating .env file for build..."
-        - echo "EXPO_PUBLIC_SUPABASE_URL=$SUPABASE_URL" > .env
-        - echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
-        - echo "EXPO_PUBLIC_GROQ_API_KEY=$GROQ_API_KEY" >> .env
-        - echo "EXPO_PUBLIC_HF_API_TOKEN=$HF_API_TOKEN" >> .env
+        - echo "SUPABASE_URL=$SUPABASE_URL" > .env
+        - echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
+        - echo "GROQ_API_KEY=$GROQ_API_KEY" >> .env
+        - echo "HF_API_TOKEN=$HF_API_TOKEN" >> .env
         - npm install
-        - npm install expo-build-properties
     build:
       commands:
         - export NODE_OPTIONS=--max_old_space_size=4096
-        - npx expo install
-        - npx expo export --platform web --no-minify
+        - npm run build
         - echo "Listing directories:"
         - ls -la
   artifacts:

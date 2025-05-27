@@ -891,121 +891,109 @@ Keep responses concise and focused on the data provided.`
   // --- End of copied components ---
 
   return (
-    <View style={styles.chatboxContainer}>
-      {/* Top Bar (Header) */}
-      <LinearGradient
-        colors={['#6D28D9', '#3B0764', '#1A1A2E']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.topBar}
-      >
-        <GestureDetector gesture={dragGesture}>
-          <View style={styles.swipeHandleContainer}>
-            <View style={styles.swipeHandle} />
+    <View style={styles.overlay}>
+      <View style={styles.chatboxContainer}>
+        {/* Top Bar (Header) */}
+        <LinearGradient
+          colors={['#6D28D9', '#3B0764', '#1A1A2E']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.topBar}
+        >
+          <GestureDetector gesture={dragGesture}>
+            <View style={styles.swipeHandleContainer}>
+              <View style={styles.swipeHandle} />
+            </View>
+          </GestureDetector>
+          <View style={styles.topBarContent}>
+            <Text style={styles.topBarTitle}>AI Chatbox</Text>
+            <View style={styles.toggleContainer}>
+              <Text style={styles.toggleLabel}>RAG</Text>
+              <Switch
+                value={isRAGEnabled}
+                onValueChange={setIsRAGEnabled}
+                trackColor={{ false: '#767577', true: '#8A2BE2' }}
+                thumbColor={isRAGEnabled ? '#f4f3f4' : '#f4f3f4'}
+                ios_backgroundColor="#3e3e3e"
+              />
+            </View>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
           </View>
-        </GestureDetector>
-        <View style={styles.topBarContent}>
-          <Text style={styles.topBarTitle}>AI Chatbox</Text>
-          <View style={styles.toggleContainer}>
-            <Text style={styles.toggleLabel}>RAG</Text>
-            <Switch
-              value={isRAGEnabled}
-              onValueChange={setIsRAGEnabled}
-              trackColor={{ false: '#767577', true: '#8A2BE2' }}
-              thumbColor={isRAGEnabled ? '#f4f3f4' : '#f4f3f4'}
-              ios_backgroundColor="#3e3e3e"
-            />
-          </View>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Text style={styles.closeButtonText}>✕</Text>
-          </TouchableOpacity>
+        </LinearGradient>
+        {/* Messages Area (Scrollable) */}
+        <View style={styles.messagesWrapper}>
+          <ScrollView
+            ref={scrollViewRef}
+            style={styles.messagesContainer}
+            contentContainerStyle={styles.messagesContentContainer}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* ... message rendering ... */}
+            {messages.map((msg) => (
+              <View
+                key={msg.id}
+                style={[
+                  styles.messageBubble,
+                  msg.role === 'user' ? styles.userMessage : styles.botMessage,
+                ]}
+              >
+                <Text style={msg.role === 'user' ? styles.userMessageText : styles.botMessageText}>
+                  {msg.content}
+                </Text>
+                {msg.role === 'assistant' && msg.mode && (
+                  <View style={styles.modeIndicator}>
+                    <Text style={styles.modeIndicatorText}>
+                      {msg.mode === 'rag-sql' ? 'SQL RAG' :
+                        msg.mode === 'rag-embedding' ? 'Embedding RAG' :
+                          msg.mode === 'standard' ? 'Standard AI' :
+                            msg.mode === 'error' ? 'Error' : ''}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ))}
+            {(isLoading || isPortfolioLoading) && (
+              <View key="loading" style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#007AFF" />
+              </View>
+            )}
+          </ScrollView>
         </View>
-      </LinearGradient>
-      {/* Search Field (Always visible) */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search messages..."
-          placeholderTextColor="#8A94A6"
-          // Add search logic if needed
-        />
-      </View>
-      {/* Messages Area (Scrollable) */}
-      <View style={styles.messagesWrapper}>
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.messagesContainer}
-          contentContainerStyle={styles.messagesContentContainer}
-          keyboardShouldPersistTaps="handled"
+        {/* Input Field (Always at bottom) */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+          style={styles.inputContainer}
         >
-          {/* ... message rendering ... */}
-          {messages.map((msg) => (
-            <View
-              key={msg.id}
-              style={[
-                styles.messageBubble,
-                msg.role === 'user' ? styles.userMessage : styles.botMessage,
-              ]}
-            >
-              <Text style={msg.role === 'user' ? styles.userMessageText : styles.botMessageText}>
-                {msg.content}
-              </Text>
-              {msg.role === 'assistant' && msg.mode && (
-                <View style={styles.modeIndicator}>
-                  <Text style={styles.modeIndicatorText}>
-                    {msg.mode === 'rag-sql' ? 'SQL RAG' :
-                      msg.mode === 'rag-embedding' ? 'Embedding RAG' :
-                        msg.mode === 'standard' ? 'Standard AI' :
-                          msg.mode === 'error' ? 'Error' : ''}
-                  </Text>
-                </View>
-              )}
-            </View>
-          ))}
-          {(isLoading || isPortfolioLoading) && (
-            <View key="loading" style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#007AFF" />
-            </View>
-          )}
-        </ScrollView>
+          <TextInput
+            style={styles.input}
+            value={inputText}
+            onChangeText={setInputText}
+            placeholder={`Ask about your portfolio ${isRAGEnabled ? '(RAG Enabled)' : '(Standard AI)'}...`}
+            placeholderTextColor="rgba(0,0,0,0.4)"
+            onSubmitEditing={handleSend}
+            returnKeyType="send"
+            editable={!isLoading}
+            multiline
+          />
+          <TouchableOpacity
+            style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]}
+            onPress={handleSend}
+            disabled={!inputText.trim() || isLoading}
+          >
+            <Text style={styles.sendButtonText}>Send</Text>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </View>
-      {/* Input Field (Always at bottom) */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
-        style={styles.inputContainer}
-      >
-        <TextInput
-          style={styles.input}
-          value={inputText}
-          onChangeText={setInputText}
-          placeholder={`Ask about your portfolio ${isRAGEnabled ? '(RAG Enabled)' : '(Standard AI)'}...`}
-          placeholderTextColor="rgba(0,0,0,0.4)"
-          onSubmitEditing={handleSend}
-          returnKeyType="send"
-          editable={!isLoading}
-          multiline
-        />
-        <TouchableOpacity
-          style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]}
-          onPress={handleSend}
-          disabled={!inputText.trim() || isLoading}
-        >
-          <Text style={styles.sendButtonText}>Send</Text>
-        </TouchableOpacity>
-      </KeyboardAvoidingView>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  chatboxContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    overflow: 'hidden',
-    flexDirection: 'column',
-  },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.10)', justifyContent: 'flex-end', alignItems: 'center' },
+  chatboxContainer: { flex: 1, width: '100%', maxWidth: 600, alignSelf: 'center', backgroundColor: '#FFFFFF', borderRadius: 18, overflow: 'hidden', flexDirection: 'column' },
   topBar: {
     height: 70,
     paddingHorizontal: 20,
@@ -1062,14 +1050,7 @@ const styles = StyleSheet.create({
     color: '#000000',
     lineHeight: 22,
   },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#E0E7F1',
-    backgroundColor: '#FFFFFF',
-    padding: 10,
-  },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 15, borderTopColor: '#E0E7F1', backgroundColor: '#FFFFFF', padding: 1 },
   input: {
     flex: 1,
     color: '#000000',
@@ -1162,24 +1143,7 @@ const styles = StyleSheet.create({
     color: 'rgba(0, 0, 0, 0.6)',
     fontWeight: '500',
   },
-  searchContainer: {
-    padding: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E7F1',
-  },
-  searchInput: {
-    flex: 1,
-    color: '#000000',
-    fontSize: 16,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 24,
-    paddingHorizontal: 20,
-    paddingVertical: 5,
-  },
-  messagesWrapper: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
+  messagesWrapper: { flex: 1, backgroundColor: '#FFFFFF', marginBottom: 60 },
 });
 
 // Styles for portfolio query results, adapted from PortfolioGraph.js

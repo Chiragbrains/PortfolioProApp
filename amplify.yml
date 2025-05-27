@@ -7,14 +7,17 @@ frontend:
         - echo "SUPABASE_URL=$SUPABASE_URL" > .env
         - echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
         - echo "GROQ_API_KEY=$GROQ_API_KEY" >> .env
+        - echo "HF_API_TOKEN=$HF_API_TOKEN" >> .env
         - npm install
+        - npm install -g expo-cli
     build:
       commands:
-        - npm run build
+        - export NODE_OPTIONS=--max_old_space_size=4096
+        - expo export:web
         - echo "Listing directories:"
         - ls -la
   artifacts:
-    baseDirectory: dist
+    baseDirectory: web-build
     files:
       - '**/*'
     headers:

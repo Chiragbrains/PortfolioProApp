@@ -21,6 +21,9 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function generateEmbedding(text) {
   try {
+    // Format the input text according to E5 model requirements
+    const formattedInput = `query: ${text.trim()}`;
+    
     const response = await fetch('https://api-inference.huggingface.co/models/intfloat/e5-large-v2', {
       method: 'POST',
       headers: {
@@ -28,7 +31,7 @@ async function generateEmbedding(text) {
         'Authorization': `Bearer ${huggingFaceApiKey}`,
       },
       body: JSON.stringify({
-        inputs: text.trim(),
+        inputs: formattedInput,
         options: {
           wait_for_model: true,
           use_cache: true
@@ -42,12 +45,16 @@ async function generateEmbedding(text) {
 
     const data = await response.json();
     
-    // Ensure the embedding is the correct dimension (1536)
-    if (!Array.isArray(data) || data.length !== 1536) {
-      throw new Error(`Invalid embedding dimension: ${data.length}, expected 1536`);
+    // The E5 model returns an array of arrays, we need the first array
+    const embedding = Array.isArray(data) ? data[0] : data;
+    
+    // Ensure the embedding is the correct dimension (1024)
+    if (!Array.isArray(embedding) || embedding.length !== 1024) {
+      console.error('Received data:', data);
+      throw new Error(`Invalid embedding dimension: ${embedding.length}, expected 1024`);
     }
     
-    return data;
+    return embedding;
   } catch (error) {
     console.error('Error generating embedding:', error);
     throw error;
@@ -97,16 +104,44 @@ async function updatePortfolioEmbeddings() {
           
           if (embedding) {
             console.log('Updating database...');
+            console.log('Embedding length:', embedding.length);
+            console.log('First few values:', embedding.slice(0, 5));
+            
+            // First, verify the embedding is valid
+            if (!Array.isArray(embedding) || embedding.length !== 1024) {
+              console.error(`Invalid embedding format for ${summary.ticker}`);
+              errorCount++;
+              continue;
+            }
+
+            // Update the database
             const { error: updateError } = await supabase
               .from('portfolio_summary')
-              .update({ embedded: embedding })
+              .update({ embedding: embedding })
               .eq('ticker', summary.ticker);
 
             if (updateError) {
               console.error(`Error updating embedding for ${summary.ticker}:`, updateError);
               errorCount++;
+              continue;
+            }
+
+            // Verify the update was successful
+            const { data: verifyData, error: verifyError } = await supabase
+              .from('portfolio_summary')
+              .select('embedding')
+              .eq('ticker', summary.ticker)
+              .single();
+
+            if (verifyError) {
+              console.error(`Error verifying update for ${summary.ticker}:`, verifyError);
+              errorCount++;
+            } else if (!verifyData.embedding) {
+              console.error(`Update verification failed for ${summary.ticker}: embedding is still NULL`);
+              errorCount++;
             } else {
               console.log(`Successfully updated embedding for ${summary.ticker}`);
+              console.log('Verified embedding length:', verifyData.embedding.length);
               successCount++;
             }
           }

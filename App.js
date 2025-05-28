@@ -42,6 +42,7 @@ import MenuDrawer from './components/MenuDrawer';
 import ImportConfirmationModal from './components/ImportConfirmationModal';
 import PopupNotification from './components/PopupNotification';
 import AccountCard from './components/AccountCard';
+import UnifiedChatbox from './UnifiedChatbox';
 
 // --- Main App Component ---
 export default function App() {
@@ -639,7 +640,16 @@ export default function App() {
     const renderActiveTabContent = () => {
         const formattedTimestamp = formatTimestamp(lastRefreshedTimestamp);
         const activeHoldings = summaryData.filter(s => s.total_quantity && s.total_quantity > 0);
-        const sortedHoldings = [...activeHoldings].sort((a, b) => {
+        
+        // Add filtering based on search term
+        const filteredHoldings = portfolioSearchTerm
+            ? activeHoldings.filter(holding => 
+                holding.ticker.toLowerCase().includes(portfolioSearchTerm.toLowerCase()) ||
+                (holding.company_name && holding.company_name.toLowerCase().includes(portfolioSearchTerm.toLowerCase()))
+            )
+            : activeHoldings;
+
+        const sortedHoldings = [...filteredHoldings].sort((a, b) => {
             if (portfolioSortBy === 'value') {
                 return (b.market_value || 0) - (a.market_value || 0);
             } else if (portfolioSortBy === 'ticker') {

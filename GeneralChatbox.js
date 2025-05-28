@@ -125,55 +125,61 @@ Columns:
 - type: TEXT (Type of asset, e.g., stock, etf or cash)
 - last_updated: TIMESTAMP (When the data was last refreshed)
 
-Constraints:
-1. ONLY generate SQL SELECT queries. Do not generate INSERT, UPDATE, DELETE, or any other type of SQL statement.
-2. ONLY query the 'portfolio_summary' table. Do not refer to any other tables.
-3. Ensure the generated SQL is valid for PostgreSQL.
-4. If the user's question cannot be answered with a SELECT query on the 'portfolio_summary' table based on the provided schema, respond ONLY with the exact text 'QUERY_UNANSWERABLE'.
-5. When asked about "how many" shares or a specific quantity of a stock, select the 'total_quantity' column. Do not use COUNT(*).
-6. For queries about losses or worst performing stocks, use ORDER BY pnl_dollar ASC (ascending order to show biggest losses first).
-7. For queries about gains or best performing stocks, use ORDER BY pnl_dollar DESC (descending order to show biggest gains first).
-8. When a user refers to a specific company:
-   a. If the input is clearly a ticker symbol (e.g., "AAPL", "MSFT"), use an exact match on the \`ticker\` column (e.g., \`WHERE ticker = 'AAPL'\`). Ensure the ticker in the SQL is uppercase.
-   b. If the input is a company name (e.g., "Apple", "Microsoft Corporation"), try to determine its common stock ticker symbol and use an exact match on the \`ticker\` column with that symbol in uppercase.
-   c. As a fallback, if you cannot confidently determine the ticker from a company name, or if the name is partial, you may use \`company_name LIKE '%User Provided Name%'\`.
-9. If the user asks for information about multiple distinct companies or tickers in a single question, combine the conditions into a single SQL query using the \`OR\` operator.
-10. For queries about assets that are "breaking even", "close to breaking even", or "almost breaking even", use the following SQL pattern:
-    SELECT * FROM portfolio_summary WHERE type != 'cash'  AND ABS(pnl_percent) = (SELECT MIN(ABS(pnl_percent)) FROM portfolio_summary WHERE type != 'cash')
+CRITICAL REQUIREMENTS:
+1. EVERY SQL query MUST follow this exact format: "SELECT [columns] FROM portfolio_summary [WHERE/ORDER BY/etc]"
+2. NEVER generate a SELECT statement without "FROM portfolio_summary"
+3. For multiple questions, generate separate SQL queries joined by semicolons
+4. Each query must be complete and executable on its own
 
-Examples:
-- User: "how many apple stocks do I have?" -> SQL: SELECT total_quantity FROM portfolio_summary WHERE ticker = 'AAPL'
-- User: "info on Google" -> SQL: SELECT * FROM portfolio_summary WHERE ticker = 'GOOGL'
-- User: "details for MSFT" -> SQL: SELECT * FROM portfolio_summary WHERE ticker = 'MSFT'
-- User: "market value of International Business Machines" -> SQL: SELECT market_value FROM portfolio_summary WHERE ticker = 'IBM'
-- User: "show me amd and nvidia" -> SQL: SELECT * FROM portfolio_summary WHERE ticker = 'AMD' OR ticker = 'NVDA'
-- User: "data for Apple and Microsoft" -> SQL: SELECT * FROM portfolio_summary WHERE ticker = 'AAPL' OR ticker = 'MSFT'
-- User: "what is my biggest loss?" -> SQL: SELECT ticker, pnl_dollar FROM portfolio_summary ORDER BY pnl_dollar ASC LIMIT 1
-- User: "what is my biggest gain?" -> SQL: SELECT ticker, pnl_dollar FROM portfolio_summary ORDER BY pnl_dollar DESC LIMIT 1
-- User: "total value of my portfolio" -> SQL: SELECT SUM(market_value) FROM portfolio_summary
-- User: "what assets am I almost breaking even on?" -> SQL: SELECT * FROM portfolio_summary WHERE type != 'cash' AND ABS(pnl_percent) = (SELECT MIN(ABS(pnl_percent)) FROM portfolio_summary WHERE type != 'cash')`;
+Examples of valid queries:
+- "SELECT ticker, company_name, market_value FROM portfolio_summary ORDER BY market_value DESC LIMIT 3"
+- "SELECT SUM(market_value) FROM portfolio_summary"
+- "SELECT ticker, pnl_dollar FROM portfolio_summary WHERE ticker = 'AAPL'"
+- "SELECT * FROM portfolio_summary WHERE type != 'cash' ORDER BY pnl_dollar DESC LIMIT 5"
+
+For the specific question about top holdings and total value, generate:
+"SELECT ticker, company_name, market_value FROM portfolio_summary ORDER BY market_value DESC LIMIT 3; SELECT SUM(market_value) FROM portfolio_summary"`;
+
     try {
         console.log('[GeneralChatbox] interpretPortfolioQuery: Preparing to call Groq for SQL generation.');
         const makeRequest = () => {
             return new Promise((resolve, reject) => {
-                const payload = { model: "meta-llama/llama-4-scout-17b-16e-instruct", messages: [{ role: "system", content: systemPrompt },{ role: "user", content: userQuery }], temperature: 0.5, max_tokens: 500 };
+                const payload = { 
+                    model: "meta-llama/llama-4-scout-17b-16e-instruct", 
+                    messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: userQuery }
+                    ], 
+                    temperature: 0.1, // Reduced temperature for more consistent output
+                    max_tokens: 500 
+                };
                 const xhr = new XMLHttpRequest();
                 xhr.timeout = 20000;
                 xhr.onreadystatechange = function() {
-                    // console.log(`[GeneralChatbox] interpretPortfolioQuery: XHR readyState: ${this.readyState}, status: ${this.status}`); // Can be very verbose
                     if (this.readyState === 4) {
-                        if (this.status >= 200 && this.status < 300) { try { const response = JSON.parse(this.responseText); resolve(response); } catch (e) { reject(new Error(`Failed to parse response: ${this.responseText.substring(0, 100)}...`)); } }
-                        else { reject(new Error(`Request failed with status ${this.status}: ${this.responseText}`)); }
+                        if (this.status >= 200 && this.status < 300) { 
+                            try { 
+                                const response = JSON.parse(this.responseText); 
+                                resolve(response); 
+                            } catch (e) { 
+                                reject(new Error(`Failed to parse response: ${this.responseText.substring(0, 100)}...`)); 
+                            } 
+                        }
+                        else { 
+                            reject(new Error(`Request failed with status ${this.status}: ${this.responseText}`)); 
+                        }
                     }
                 };
                 xhr.ontimeout = function() { reject(new Error("Request timed out after 20 seconds")); };
                 xhr.onerror = function() { reject(new Error("Network error occurred"));};
                 xhr.open("POST", "https://api.groq.com/openai/v1/chat/completions", true);
-                xhr.setRequestHeader("Content-Type", "application/json"); xhr.setRequestHeader("Authorization", `Bearer ${GROQ_API_KEY}`);
+                xhr.setRequestHeader("Content-Type", "application/json"); 
+                xhr.setRequestHeader("Authorization", `Bearer ${GROQ_API_KEY}`);
                 xhr.send(JSON.stringify(payload));
             });
         };
-        const makeRequestWithRetries = async (retries = 1) => { // Reduced retries for chat
+
+        const makeRequestWithRetries = async (retries = 1) => {
             let attempt = 0;
             while (attempt <= retries) {
                 try {
@@ -183,28 +189,51 @@ Examples:
                     console.warn(`[GeneralChatbox] interpretPortfolioQuery: Groq SQL generation attempt ${attempt + 1} failed:`, error.message);
                     if (attempt === retries) throw error;
                     attempt++;
-                    await new Promise(resolve => setTimeout(resolve, 500 + attempt * 500)); // Exponential backoff
+                    await new Promise(resolve => setTimeout(resolve, 500 + attempt * 500));
                 }
             }
         };
+
         const data = await makeRequestWithRetries();
         console.log('[GeneralChatbox] interpretPortfolioQuery: Groq SQL generation response received.');
+        
         if (data?.choices?.[0]?.message?.content) {
             const rawContent = data.choices[0].message.content;
             console.log('[GeneralChatbox] interpretPortfolioQuery: Raw content from LLM -', rawContent.substring(0, 100) + "...");
+            
             if (rawContent === 'QUERY_UNANSWERABLE') return 'QUERY_UNANSWERABLE';
-            const sqlRegex = /```(?:sql)?\s*(SELECT[\s\S]*?)(?:;)?\s*```|^(SELECT[\s\S]*?)(?:;)?$/im;
+            
+            // Extract SQL queries
+            const sqlRegex = /```(?:sql)?\s*(SELECT[\s\S]*?FROM\s+portfolio_summary[\s\S]*?)(?:;)?\s*```|^(SELECT[\s\S]*?FROM\s+portfolio_summary[\s\S]*?)(?:;)?$/im;
             const match = rawContent.match(sqlRegex);
             let extractedSql = null;
-            if (match) { extractedSql = (match[1] || match[2] || '').trim(); }
-            else if (rawContent.toUpperCase().includes('SELECT')) { const selectRegex = /SELECT\s+[^;]*/i; const selectMatch = rawContent.match(selectRegex); if (selectMatch) { extractedSql = selectMatch[0].trim(); } }
-            if (extractedSql?.toUpperCase().startsWith('SELECT')) { console.log('[GeneralChatbox] interpretPortfolioQuery: Extracted SQL -', extractedSql); return extractedSql.endsWith(';') ? extractedSql.slice(0, -1).trim() : extractedSql; }
+            
+            if (match) {
+                extractedSql = (match[1] || match[2] || '').trim();
+                // Validate that the query contains FROM portfolio_summary
+                if (!extractedSql.toLowerCase().includes('from portfolio_summary')) {
+                    console.error('[GeneralChatbox] interpretPortfolioQuery: Generated SQL missing FROM clause');
+                    return null;
+                }
+            } else if (rawContent.toUpperCase().includes('SELECT')) {
+                const selectRegex = /SELECT\s+[^;]*FROM\s+portfolio_summary[^;]*/i;
+                const selectMatch = rawContent.match(selectRegex);
+                if (selectMatch) {
+                    extractedSql = selectMatch[0].trim();
+                }
+            }
+            
+            if (extractedSql?.toUpperCase().startsWith('SELECT')) {
+                console.log('[GeneralChatbox] interpretPortfolioQuery: Extracted SQL -', extractedSql);
+                return extractedSql.endsWith(';') ? extractedSql.slice(0, -1).trim() : extractedSql;
+            }
         }
-        console.log('[GeneralChatbox] interpretPortfolioQuery: No SQL extracted or content missing.');
-        return null; // Indicate not a portfolio query / failed to extract SQL
+        
+        console.log('[GeneralChatbox] interpretPortfolioQuery: No valid SQL extracted or content missing.');
+        return null;
     } catch (error) {
         console.error('[GeneralChatbox] interpretPortfolioQuery: ERROR -', error);
-        return null; // Indicate not a portfolio query on error
+        return null;
     }
   };
 
@@ -219,20 +248,28 @@ Examples:
   };
 
   const getFormattedPortfolioTextResponseFromLLM = async (originalUserQuery, databaseResults) => {
-    console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: START for query -', originalUserQuery);
-    if (!databaseResults || databaseResults.length === 0) return "No data was found to answer your question.";
+    console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: START');
+    console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Original Query:', originalUserQuery);
+    console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Database Results:', databaseResults);
+    
+    if (!databaseResults || databaseResults.length === 0) {
+      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: No data found');
+      return "No data was found to answer your question.";
+    }
     
     const safeUserQuery = String(originalUserQuery || '');
-    const resultsSampleForLLM = Array.isArray(databaseResults) ? databaseResults.slice(0, 100) : []; // limit to 100 rows for LLM
+    const resultsSampleForLLM = Array.isArray(databaseResults) ? databaseResults.slice(0, 100) : [];
+    console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Sample for LLM:', resultsSampleForLLM);
     
     try {
-      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Preparing to call Groq for text formatting.');
+      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Calling LLM for formatting');
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // Shorter timeout for chat
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
       
-      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Calling Groq API...');
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
         body: JSON.stringify({
           model: "meta-llama/llama-4-scout-17b-16e-instruct",
           messages: [
@@ -271,24 +308,38 @@ Do NOT use markdown like **bold** or _italics_. Use clear sentence structure for
               content: `Original Question: "${safeUserQuery}"\n\nDatabase Results (sample of up to 10 rows):\n${JSON.stringify(resultsSampleForLLM, null, 2)}`
             }
           ],
-          temperature: 0.3, // Lower temperature for more deterministic and factual output
+          temperature: 0.3,
         })
       });
       clearTimeout(timeoutId);
-      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Groq API response status -', response.status);
-      if (!response.ok) { const errorBody = await response.text(); throw new Error(`LLM Text Response API error: ${response.status} ${response.statusText} - ${errorBody}`);}
+      
+      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: LLM API response status:', response.status);
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: LLM API error:', errorBody);
+        throw new Error(`LLM Text Response API error: ${response.status} ${response.statusText} - ${errorBody}`);
+      }
+      
       const data = await response.json();
       const formattedText = data.choices?.[0]?.message?.content.trim();
-      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Formatted text -', formattedText ? formattedText.substring(0,100) + "..." : "Empty");
-      if (formattedText) return formattedText;
+      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Formatted text:', formattedText);
+      
+      if (formattedText) {
+        console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: END - Success');
+        return formattedText;
+      }
+      
+      console.log('[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: END - No formatted text');
       return "Could not get a formatted response from the assistant.";
     } catch (error) {
       console.error("[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: ERROR -", error);
-      if (error.name === 'AbortError') { console.warn("[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Request timed out."); return "The request to the AI assistant timed out.";}
+      if (error.name === 'AbortError') {
+        console.warn("[GeneralChatbox] getFormattedPortfolioTextResponseFromLLM: Request timed out");
+        return "The request to the AI assistant timed out.";
+      }
       return "Error processing your request with the AI assistant.";
     }
   };
-
 
   // --- General LLM Response (existing) ---
   const fetchGeneralLLMResponse = async (userQuery) => {
@@ -539,116 +590,12 @@ Maintain a professional and helpful tone.`;
       setIsLoading(false);
     }
   };
-  const handleSend = async () => {
-    if (!supabaseClient) {
-      console.error("Supabase client not available");
-      return;
-    }
-    if (!inputText.trim()) return;
 
-    const userMessage = inputText.trim();
-    console.log('[GeneralChatbox] handleSend: Starting with message:', userMessage);
-    console.log('[GeneralChatbox] handleSend: RAG Mode:', isRAGEnabled ? 'Enabled' : 'Disabled');
-    
-    setInputText('');
-    setMessages(prev => [...prev, { 
-      id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      role: 'user', 
-      content: userMessage 
-    }]);
-    setIsLoading(true);
-
-    try {
-      if (isRAGEnabled) {
-        // First try to interpret as a portfolio query
-        console.log('[GeneralChatbox] handleSend: Attempting to interpret as portfolio query...');
-        const sqlQuery = await interpretPortfolioQuery(userMessage);
-        
-        if (sqlQuery && sqlQuery !== 'QUERY_UNANSWERABLE') {
-          console.log('[GeneralChatbox] handleSend: Valid SQL query generated:', sqlQuery);
-          try {
-            const portfolioData = await fetchPortfolioDataFromSupabase(sqlQuery);
-            console.log('[GeneralChatbox] handleSend: Portfolio data retrieved:', portfolioData);
-            
-            if (portfolioData && portfolioData.length > 0) {
-              const formattedResponse = await getFormattedPortfolioTextResponseFromLLM(userMessage, portfolioData);
-              setMessages(prev => [...prev, { 
-                id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                role: 'assistant', 
-                content: formattedResponse,
-                mode: 'rag-sql'
-              }]);
-              return;
-            }
-          } catch (error) {
-            console.error('[GeneralChatbox] handleSend: Error fetching portfolio data:', error);
-          }
-        }
-
-        // If portfolio query fails or no data found, try RAG with embeddings
-        console.log('[GeneralChatbox] handleSend: Falling back to RAG with embeddings...');
-        const queryEmbedding = await generateEmbedding(userMessage);
-        
-        if (!queryEmbedding) {
-          throw new Error("Could not generate embedding for the query");
-        }
-
-        const flattenedEmbedding = Array.isArray(queryEmbedding[0]) ? queryEmbedding[0] : queryEmbedding;
-        console.log('[GeneralChatbox] handleSend: Flattened embedding length:', flattenedEmbedding.length);
-
-        const { data: portfolioData, error } = await supabaseClient
-          .rpc('match_portfolio_summary', {
-            query_embedding: flattenedEmbedding,
-            match_threshold: 0.7,
-            match_count: 5
-          });
-
-        if (error) {
-          console.error('[GeneralChatbox] handleSend: Portfolio search error:', error);
-          throw error;
-        }
-        
-        console.log('[GeneralChatbox] handleSend: Portfolio data found:', portfolioData ? `${portfolioData.length} results` : 'No results');
-
-        if (portfolioData && portfolioData.length > 0) {
-          const response = await getRagLLMResponse(userMessage, portfolioData);
-          if (response) {
-            setMessages(prev => [...prev, { 
-              id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              role: 'assistant', 
-              content: response,
-              mode: 'rag-embedding'
-            }]);
-            return;
-          }
-        }
-
-        // If no portfolio data found or RAG failed, fall back to standard response
-        console.log('[GeneralChatbox] handleSend: No portfolio data found, falling back to standard response');
-        await getStandardLLMResponse(userMessage);
-      } else {
-        // Standard AI Mode
-        await getStandardLLMResponse(userMessage);
-      }
-    } catch (error) {
-      console.error('[GeneralChatbox] handleSend: Error occurred:', error);
-      setMessages(prev => [...prev, { 
-        id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        role: 'assistant', 
-        content: "I apologize, but I encountered an error. Please try again.",
-        mode: 'error'
-      }]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Function for standard LLM responses (without RAG)
-  const getStandardLLMResponse = async (userQuery) => {
-    console.log('[GeneralChatbox] getStandardLLMResponse: Starting with query:', userQuery);
+  // Add new function to split multiple questions
+  const splitMultipleQuestions = async (userMessage) => {
+    console.log('[GeneralChatbox] splitMultipleQuestions: Starting with message:', userMessage);
     
     try {
-      console.log('[GeneralChatbox] getStandardLLMResponse: Preparing LLM request...');
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -660,45 +607,506 @@ Maintain a professional and helpful tone.`;
           messages: [
             {
               role: "system",
-              content: `You are a helpful AI assistant that can answer questions about finance and investing.
-Keep responses concise, accurate, and focused on the user's question.
-If you don't know something, say so politely.`
+              content: `You are an AI assistant that splits user messages into separate questions.
+If the user's message contains multiple questions, split them into individual questions.
+If the message contains only one question or statement, return it as is.
+Respond with a JSON array of strings, where each string is a separate question.
+Example input: "What's the price of AAPL and MSFT? Also tell me about GOOGL's PE ratio."
+Example output: ["What's the price of AAPL?", "What's the price of MSFT?", "What is GOOGL's PE ratio?"]`
             },
-            { role: "user", content: userQuery }
+            { role: "user", content: userMessage }
+          ],
+          temperature: 0.1,
+          response_format: { type: "json_object" }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Question splitting API error ${response.status}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+      
+      try {
+        const parsedContent = JSON.parse(content);
+        const questions = Array.isArray(parsedContent) ? parsedContent : [userMessage];
+        console.log('[GeneralChatbox] splitMultipleQuestions: Split into questions:', questions);
+        return questions;
+      } catch (e) {
+        console.error('[GeneralChatbox] Error parsing questions JSON:', e);
+        return [userMessage];
+      }
+    } catch (error) {
+      console.error('[GeneralChatbox] Error in splitMultipleQuestions:', error);
+      return [userMessage];
+    }
+  };
+
+  // Add new function to combine multiple responses
+  const combineResponses = async (originalQuestion, responses) => {
+    console.log('[GeneralChatbox] combineResponses: Starting with responses:', responses);
+    
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "llama3-8b-8192",
+          messages: [
+            {
+              role: "system",
+              content: `You are an AI assistant that combines multiple formatted responses into a coherent answer.
+The user asked multiple questions, and you have received separate formatted answers for each.
+Combine these answers into a single, well-structured response that addresses all questions.
+
+IMPORTANT FORMATTING RULES:
+1. Keep the existing formatting of P&L values and ticker symbols
+2. Use bullet points (starting with "* ") for lists or multiple items
+3. Use clear paragraph breaks between different topics
+4. Maintain the professional and concise tone
+5. DO NOT modify the formatting of:
+   - P&L values (e.g., "$1,234.56, +5.67%")
+   - Ticker symbols (e.g., "AAPL" or "(MSFT)")
+   - Currency values
+6. Add clear section headers for different parts of the response
+
+Example format:
+* Top Holdings:
+  - Apple (AAPL): $1,500.00, +5.00%
+  - Microsoft (MSFT): $1,200.00, +3.50%
+  - Google (GOOGL): $1,000.00, +2.75%
+
+Total Portfolio Value: $3,700.00`
+            },
+            { 
+              role: "user", 
+              content: `Original question: "${originalQuestion}"\n\nIndividual formatted responses:\n${responses.join('\n\n')}`
+            }
           ],
           temperature: 0.7,
         }),
       });
 
-      console.log('[GeneralChatbox] getStandardLLMResponse: LLM API response status:', response.status);
-      
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[GeneralChatbox] getStandardLLMResponse: LLM API error:', errorText);
-        throw new Error(`LLM API error: ${response.status}`);
+        throw new Error(`Response combination API error ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('[GeneralChatbox] getStandardLLMResponse: LLM response data received');
+      const combinedResponse = data.choices?.[0]?.message?.content.trim();
+      console.log('[GeneralChatbox] combineResponses: Combined response:', combinedResponse);
       
-      const botResponse = data.choices?.[0]?.message?.content;
-      console.log('[GeneralChatbox] getStandardLLMResponse: Bot response extracted:', botResponse ? 'Success' : 'Failed');
+      if (!combinedResponse) {
+        // If no combined response, format the individual responses with headers
+        return responses.map((r, i) => `* Response ${i + 1}:\n${r}`).join('\n\n');
+      }
       
-      setMessages(prev => [...prev, { 
-        id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        role: 'assistant', 
-        content: botResponse,
-        mode: 'standard'
-      }]);
+      // Format the combined response
+      return formatResponseText(combinedResponse);
     } catch (error) {
-      console.error('[GeneralChatbox] getStandardLLMResponse: Error:', error);
+      console.error('[GeneralChatbox] Error in combineResponses:', error);
+      // Fallback to simple formatting if combination fails
+      return responses.map((r, i) => `* Response ${i + 1}:\n${r}`).join('\n\n');
+    }
+  };
+
+  // Modify handleSend to handle multiple SQL queries while keeping original question intact
+  const handleSend = async () => {
+    if (!supabaseClient) {
+      console.error("[GeneralChatbox] handleSend: Supabase client not available");
+      return;
+    }
+    if (!inputText.trim()) return;
+
+    const userMessage = inputText.trim();
+    console.log('[GeneralChatbox] handleSend: START');
+    console.log('[GeneralChatbox] handleSend: User Input:', userMessage);
+    console.log('[GeneralChatbox] handleSend: RAG Mode:', isRAGEnabled ? 'Enabled' : 'Disabled');
+    
+    setInputText('');
+    setMessages(prev => [...prev, { 
+      id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      role: 'user', 
+      content: userMessage 
+    }]);
+    setIsLoading(true);
+
+    try {
+      // Split the user message into multiple questions if needed
+      const questions = await splitMultipleQuestions(userMessage);
+      console.log('[GeneralChatbox] handleSend: Split into questions:', questions);
+
+      // If there's only one question, process it normally
+      if (questions.length === 1) {
+        await processSingleQuestion(questions[0]);
+      } else {
+        // Process multiple questions
+        const responses = [];
+        for (const question of questions) {
+          console.log('[GeneralChatbox] handleSend: Processing question:', question);
+          const response = await processSingleQuestion(question, false); // Don't add to messages yet
+          if (response) {
+            responses.push(response);
+          }
+        }
+
+        // Combine all responses
+        console.log('[GeneralChatbox] handleSend: Combining responses');
+        const combinedResponse = await combineResponses(userMessage, responses);
+        
+        // Add the combined response to messages
+        setMessages(prev => [...prev, { 
+          id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          role: 'assistant', 
+          content: combinedResponse,
+          mode: isRAGEnabled ? 'rag-combined' : 'standard'
+        }]);
+      }
+    } catch (error) {
+      console.error('[GeneralChatbox] handleSend: Error occurred:', error);
       setMessages(prev => [...prev, { 
         id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         role: 'assistant', 
         content: "I apologize, but I encountered an error. Please try again.",
         mode: 'error'
       }]);
+    } finally {
+      console.log('[GeneralChatbox] handleSend: END');
+      setIsLoading(false);
     }
+  };
+
+  // New helper function to process a single question
+  const processSingleQuestion = async (question, addToMessages = true) => {
+    console.log('[GeneralChatbox] processSingleQuestion: Processing question:', question);
+    let allPortfolioData = [];
+    let sqlQueries = [];
+
+    if (isRAGEnabled) {
+      console.log('[GeneralChatbox] processSingleQuestion: RAG Enabled - Getting SQL query from LLM');
+      // Get SQL queries from LLM
+      const sqlQuery = await interpretPortfolioQuery(question);
+      console.log('[GeneralChatbox] processSingleQuestion: LLM Generated SQL Query:', sqlQuery);
+      
+      if (sqlQuery && sqlQuery !== 'QUERY_UNANSWERABLE') {
+        // Split multiple SQL queries if they exist
+        const queries = sqlQuery.split(';').map(q => q.trim()).filter(q => q);
+        console.log('[GeneralChatbox] processSingleQuestion: Split SQL Queries:', queries);
+        
+        // Execute each SQL query separately
+        for (const query of queries) {
+          try {
+            console.log('[GeneralChatbox] processSingleQuestion: Executing SQL Query:', query);
+            const portfolioData = await fetchPortfolioDataFromSupabase(query);
+            console.log('[GeneralChatbox] processSingleQuestion: SQL Query Results:', portfolioData);
+            
+            if (portfolioData && portfolioData.length > 0) {
+              allPortfolioData.push(...portfolioData);
+              sqlQueries.push(query);
+              console.log('[GeneralChatbox] processSingleQuestion: Added to combined results. Total rows:', allPortfolioData.length);
+            } else {
+              console.log('[GeneralChatbox] processSingleQuestion: No data returned for query');
+            }
+          } catch (error) {
+            console.error('[GeneralChatbox] Error executing SQL query:', error);
+          }
+        }
+      } else {
+        console.log('[GeneralChatbox] processSingleQuestion: No valid SQL query generated or query unanswerable');
+      }
+
+      // If no portfolio data found from SQL, try RAG with embeddings
+      if (allPortfolioData.length === 0) {
+        console.log('[GeneralChatbox] processSingleQuestion: No SQL data found, trying RAG with embeddings');
+        try {
+          const queryEmbedding = await generateEmbedding(question);
+          console.log('[GeneralChatbox] processSingleQuestion: Generated embedding for RAG');
+          
+          if (queryEmbedding) {
+            const flattenedEmbedding = Array.isArray(queryEmbedding[0]) ? queryEmbedding[0] : queryEmbedding;
+            console.log('[GeneralChatbox] processSingleQuestion: Executing RAG search');
+            const { data: ragData } = await supabaseClient
+              .rpc('match_portfolio_summary', {
+                query_embedding: flattenedEmbedding,
+                match_threshold: 0.7,
+                match_count: 5
+              });
+
+            console.log('[GeneralChatbox] processSingleQuestion: RAG Search Results:', ragData);
+            if (ragData && ragData.length > 0) {
+              allPortfolioData.push(...ragData);
+              console.log('[GeneralChatbox] processSingleQuestion: Added RAG results. Total rows:', allPortfolioData.length);
+            } else {
+              console.log('[GeneralChatbox] processSingleQuestion: No RAG results found');
+            }
+          }
+        } catch (error) {
+          console.error('[GeneralChatbox] Error processing RAG query:', error);
+        }
+      }
+    }
+
+    // Generate response
+    let finalResponse;
+    if (allPortfolioData.length > 0) {
+      console.log('[GeneralChatbox] processSingleQuestion: Generating response from portfolio data');
+      finalResponse = await getFormattedPortfolioTextResponseFromLLM(question, allPortfolioData);
+    } else {
+      console.log('[GeneralChatbox] processSingleQuestion: No portfolio data, using standard LLM response');
+      finalResponse = await getStandardLLMResponse(question);
+    }
+
+    if (!finalResponse) {
+      console.log('[GeneralChatbox] processSingleQuestion: No response generated, using fallback message');
+      finalResponse = "I apologize, but I couldn't find any relevant information to answer your question.";
+    }
+
+    // Format the response using the same formatting logic as FormattedLLMResponse
+    const formattedResponse = formatResponseText(finalResponse);
+
+    if (addToMessages) {
+      setMessages(prev => [...prev, { 
+        id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        role: 'assistant', 
+        content: formattedResponse,
+        mode: isRAGEnabled ? 'rag-combined' : 'standard'
+      }]);
+    }
+
+    return formattedResponse;
+  };
+
+  // Helper function to format response text (extracted from FormattedLLMResponse component)
+  const formatResponseText = (text) => {
+    if (!text) return '';
+    
+    // Format P&L values
+    const pnlRegex = /(-\$?\s*[\d,]+\.\d{2}\s*,\s*-?\s*\d+\.?\d*\s*%|\$?\s*[\d,]+\.\d{2}\s*,\s*\+?\s*\d+\.?\d*\s*%)/g;
+    const pnlParts = text.split(pnlRegex);
+    
+    // Format ticker symbols
+    const tickerSplitRegex = /(\b[A-Z]{2,5}\b|\([A-Z]{1,5}\)|(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*))/g;
+    
+    // Process each line
+    const lines = text.split('\n');
+    const formattedLines = lines.map(line => {
+      line = line.trim();
+      if (line.startsWith('* ')) {
+        // Format bullet points
+        return `* ${formatLineContent(line.substring(2))}`;
+      } else if (line.length > 0) {
+        // Format regular lines
+        return formatLineContent(line);
+      }
+      return line;
+    });
+    
+    return formattedLines.join('\n');
+  };
+
+  // Helper function to format line content
+  const formatLineContent = (line) => {
+    // Format P&L values
+    const pnlParts = line.split(/(-\$?\s*[\d,]+\.\d{2}\s*,\s*-?\s*\d+\.?\d*\s*%|\$?\s*[\d,]+\.\d{2}\s*,\s*\+?\s*\d+\.?\d*\s*%)/g);
+    
+    // Format ticker symbols
+    const tickerSplitRegex = /(\b[A-Z]{2,5}\b|\([A-Z]{1,5}\)|(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*))/g;
+    
+    return pnlParts.map(part => {
+      if (part.match(/(-\$?\s*[\d,]+\.\d{2}\s*,\s*-?\s*\d+\.?\d*\s*%|\$?\s*[\d,]+\.\d{2}\s*,\s*\+?\s*\d+\.?\d*\s*%)/g)) {
+        return part; // Keep P&L values as is
+      }
+      
+      // Format ticker symbols
+      const textParts = part.split(tickerSplitRegex);
+      return textParts.map(textPart => {
+        if (textPart.match(tickerSplitRegex)) {
+          let tickerSymbol = textPart;
+          let openParen = '';
+          let closeParen = '';
+
+          if (textPart.startsWith('(') && textPart.endsWith(')')) {
+            tickerSymbol = textPart.substring(1, textPart.length - 1);
+            openParen = '(';
+            closeParen = ')';
+          }
+
+          return `${openParen}${tickerSymbol}${closeParen}`;
+        }
+        return textPart;
+      }).join('');
+    }).join('');
+  };
+
+  // Function for standard LLM responses (without RAG)
+  const getStandardLLMResponse = async (userQuery) => {
+    console.log('[GeneralChatbox] getStandardLLMResponse: Starting with query:', userQuery);
+    let finalBotResponseText = "Sorry, I encountered an issue processing your request.";
+
+    try {
+      // Phase 1: Ask LLM to classify intent and extract entities
+      const intentExtractionSystemPrompt = `You are an AI assistant that analyzes user queries about finance.
+Your task is to classify the user's intent and extract relevant entities if the query is about specific stock data.
+Respond ONLY with a JSON object in the following format:
+- If the query is a general finance question (e.g., "what is a PE ratio?", "explain inflation"):
+  {"intent": "generic_finance_explanation"}
+- If the query asks for specific data about a stock (e.g., "price of AAPL", "MSFT PE ratio", "market cap for GOOG", "overview for TSLA"):
+  {"intent": "specific_data_lookup", "ticker": "TICKER_SYMBOL", "data_type": "price|pe_ratio|market_cap|overview"}
+  (Possible data_type values are: "price", "pe_ratio", "market_cap", "overview". If multiple are implied, pick the most prominent or 'overview'. If asking for general info on a stock, use 'overview'.)
+- If the query does not fit the above, or if a ticker is ambiguous or not clearly identifiable:
+  {"intent": "unknown_or_general_chat"}`;
+
+      const intentResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "llama3-8b-8192",
+          messages: [
+            { role: "system", content: intentExtractionSystemPrompt },
+            { role: "user", content: userQuery }
+          ],
+          temperature: 0.1,
+          max_tokens: 150,
+        }),
+      });
+
+      if (!intentResponse.ok) {
+        throw new Error(`Intent extraction API error ${intentResponse.status}`);
+      }
+
+      const intentData = await intentResponse.json();
+      const content = intentData.choices?.[0]?.message?.content;
+      let parsedIntent;
+      
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        parsedIntent = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+      } catch (e) {
+        console.error("[GeneralChatbox] Error parsing intent JSON:", e);
+        parsedIntent = { intent: "unknown_or_general_chat" };
+      }
+
+      // Phase 2: Fetch data from Alpha Vantage if needed
+      let retrievedDataString = "No specific real-time data was fetched for this query via external APIs.";
+      const { intent, ticker, data_type: dataType } = parsedIntent;
+
+      if (intent === "specific_data_lookup" && ticker && ALPHA_VANTAGE_API_KEY) {
+        const upperTicker = ticker.toUpperCase();
+        let fetchedDetailsArray = [];
+
+        // Fetch GLOBAL_QUOTE data
+        try {
+          const quoteUrl = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${upperTicker}&apikey=${ALPHA_VANTAGE_API_KEY}`;
+          const avResponse = await fetch(quoteUrl);
+          if (avResponse.ok) {
+            const avData = await avResponse.json();
+            const globalQuote = avData["Global Quote"];
+            if (globalQuote && globalQuote["05. price"]) {
+              fetchedDetailsArray.push(`Price data for ${globalQuote["01. symbol"] || upperTicker}: Current Price $${parseFloat(globalQuote["05. price"]).toFixed(2)}, Previous Close $${parseFloat(globalQuote["08. previous close"]).toFixed(2)}, Change ${globalQuote["10. change percent"]}.`);
+            }
+          }
+        } catch (e) {
+          console.error("[GeneralChatbox] Error fetching price data:", e);
+        }
+
+        // Fetch OVERVIEW data
+        try {
+          const overviewUrl = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${upperTicker}&apikey=${ALPHA_VANTAGE_API_KEY}`;
+          const avResponse = await fetch(overviewUrl);
+          if (avResponse.ok) {
+            const avData = await avResponse.json();
+            if (avData && avData["Symbol"]) {
+              let details = [];
+              if (avData["Name"]) details.push(`Company: ${avData["Name"]} (${avData["Symbol"]})`);
+              if (avData["Sector"] && avData["Sector"] !== "None") details.push(`Sector: ${avData["Sector"]}`);
+              if (avData["Industry"] && avData["Industry"] !== "None") details.push(`Industry: ${avData["Industry"]}`);
+              if (avData["PERatio"] && avData["PERatio"] !== "None") details.push(`P/E Ratio: ${avData["PERatio"]}`);
+              if (avData["MarketCapitalization"] && avData["MarketCapitalization"] !== "None") {
+                const marketCap = parseInt(avData["MarketCapitalization"]);
+                if (!isNaN(marketCap)) details.push(`Market Cap: $${(marketCap / 1e9).toFixed(2)}B`);
+              }
+              if (avData["Description"] && avData["Description"] !== "None") details.push(`Description: ${avData["Description"].substring(0, 200)}...`);
+              if (avData["EPS"] && avData["EPS"] !== "None") details.push(`EPS: ${avData["EPS"]}`);
+              if (avData["DividendYield"] && avData["DividendYield"] !== "None") details.push(`Dividend Yield: ${(parseFloat(avData["DividendYield"]) * 100).toFixed(2)}%`);
+              if (avData["52WeekHigh"] && avData["52WeekHigh"] !== "None") details.push(`52W High: $${avData["52WeekHigh"]}`);
+              if (avData["52WeekLow"] && avData["52WeekLow"] !== "None") details.push(`52W Low: $${avData["52WeekLow"]}`);
+              
+              if (details.length > 0) {
+                fetchedDetailsArray.push(`Overview: ${details.join('; ')}.`);
+              }
+            }
+          }
+        } catch (e) {
+          console.error("[GeneralChatbox] Error fetching overview data:", e);
+        }
+
+        retrievedDataString = fetchedDetailsArray.length > 0 ? fetchedDetailsArray.join(" \n") + " (Source: Alpha Vantage)" : "Could not retrieve detailed data from Alpha Vantage.";
+      }
+
+      // Phase 3: Generate final response
+      const finalResponseSystemPrompt = `You are a helpful AI assistant and also act as a financial analyst when asked about market topics. 
+The user asked the following question. This question was NOT answerable from their personal portfolio data.
+
+IMPORTANT LIMITATION: You DO NOT have access to real-time data from the internet (like current stock prices, live PE ratios, or today's news headlines).
+
+The following information was retrieved from an external financial data API (if applicable):
+---
+${retrievedDataString}
+---
+
+Based on the user's query AND the retrieved data above, provide an insightful and professional response.
+If the retrieved data directly answers the query, present it clearly.
+If the retrieved data indicates an error, an API limit, or that data was not found (e.g., contains "Could not fetch", "Error fetching", "data not found"), acknowledge this limitation for the specific request. Then, provide general context about the query topic or explain where the user might typically find such information, based on your expertise and general knowledge.
+If the query is more general (e.g., "explain what a PE ratio is"), provide a concise, expert explanation.
+Maintain a professional and helpful tone.`;
+
+      const finalLlmResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "llama3-8b-8192",
+          messages: [
+            { role: "system", content: finalResponseSystemPrompt },
+            { role: "user", content: userQuery }
+          ],
+          temperature: 0.7,
+        }),
+      });
+
+      if (!finalLlmResponse.ok) {
+        throw new Error(`Final LLM response API error ${finalLlmResponse.status}`);
+      }
+
+      const data = await finalLlmResponse.json();
+      const botResponseText = data.choices?.[0]?.message?.content.trim();
+
+      if (botResponseText) {
+        finalBotResponseText = botResponseText;
+      } else {
+        throw new Error("Empty response from LLM");
+      }
+    } catch (error) {
+      console.error("[GeneralChatbox] Error in getStandardLLMResponse:", error);
+      if (finalBotResponseText === "Sorry, I encountered an issue processing your request." || !finalBotResponseText.includes(error.message)) {
+        finalBotResponseText = `Sorry, an error occurred: ${error.message.substring(0,150)}`;
+      }
+    }
+
+    setMessages(prev => [...prev, { 
+      id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      role: 'assistant', 
+      content: finalBotResponseText,
+      mode: 'standard'
+    }]);
   };
 
   // Add logs to getRagLLMResponse function
@@ -759,22 +1167,21 @@ Keep responses concise and focused on the data provided.`
     const lines = text.split('\n');
 
     const renderTextWithPL = (lineText) => {
+      // Match P&L values with currency and percentage
       const pnlRegex = /(-\$?\s*[\d,]+\.\d{2}\s*,\s*-?\s*\d+\.?\d*\s*%|\$?\s*[\d,]+\.\d{2}\s*,\s*\+?\s*\d+\.?\d*\s*%)/g;
-      const pnlParts = lineText.split(pnlRegex); // Split by P&L
+      const pnlParts = lineText.split(pnlRegex);
 
       return pnlParts.map((pnlPart, pnlIndex) => {
-        if (pnlPart && pnlPart.match(pnlRegex)) { // This part is a P&L value
+        if (pnlPart && pnlPart.match(pnlRegex)) {
           const isNegative = pnlPart.startsWith('-') || pnlPart.includes(' -');
           return <Text key={`pnl-${pnlIndex}`} style={isNegative ? portfolioQueryStyles.negativeChange : portfolioQueryStyles.positiveChange}>{pnlPart}</Text>;
-        } else if (pnlPart) { // This part is regular text, potentially containing tickers
-          // Regex to find tickers: standalone (2-5 uppercase letters) or in parentheses (1-5 uppercase letters)
-          // This regex splits the string and includes the tickers themselves in the resulting array.
-          const tickerSplitRegex = /(\b[A-Z]{2,5}\b|\([A-Z]{1,5}\))/g;
+        } else if (pnlPart) {
+          // Match ticker symbols and company names
+          const tickerSplitRegex = /(\b[A-Z]{2,5}\b|\([A-Z]{1,5}\)|(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*))/g;
           const textParts = pnlPart.split(tickerSplitRegex);
 
           return textParts.map((textPart, textIndex) => {
             if (textPart && textPart.match(tickerSplitRegex)) {
-              // This part is a ticker.
               let tickerSymbol = textPart;
               let openParen = '';
               let closeParen = '';
@@ -793,12 +1200,11 @@ Keep responses concise and focused on the data provided.`
                 </Text>
               );
             }
-            // This part is regular text between tickers or P&L values
             return <Text key={`text-${pnlIndex}-${textIndex}`}>{textPart}</Text>;
-          }).filter(Boolean); // Filter out empty strings from split
+          }).filter(Boolean);
         }
         return null;
-      }).filter(Boolean); // Filter out nulls if pnlPart was empty
+      }).filter(Boolean);
     };
 
     return (
@@ -936,12 +1342,16 @@ Keep responses concise and focused on the data provided.`
                 key={msg.id}
                 style={[
                   styles.messageBubble,
-                  msg.role === 'user' ? styles.userMessage : styles.botMessage,
+                  msg.role === 'user' ? styles.userMessage : (msg.mode && msg.mode.startsWith('rag') ? styles.ragBotMessage : styles.botMessage),
                 ]}
               >
-                <Text style={msg.role === 'user' ? styles.userMessageText : styles.botMessageText}>
-                  {msg.content}
-                </Text>
+                {msg.role === 'assistant' && msg.content ? (
+                  <FormattedLLMResponse text={msg.content} />
+                ) : (
+                  <Text style={msg.role === 'user' ? styles.userMessageText : styles.botMessageText}>
+                    {msg.content}
+                  </Text>
+                )}
                 {msg.role === 'assistant' && msg.mode && (
                   <View style={styles.modeIndicator}>
                     <Text style={styles.modeIndicatorText}>
@@ -968,15 +1378,46 @@ Keep responses concise and focused on the data provided.`
           style={styles.inputContainer}
         >
           <TextInput
-            style={styles.input}
+            style={[
+                styles.input,
+                { 
+                    flex: 1,
+                    backgroundColor: '#fff',
+                    borderRadius: 20,
+                    paddingHorizontal: 15,
+                    paddingVertical: 10,
+                    fontSize: 16,
+                    color: '#333',
+                    maxHeight: 100,
+                    minHeight: 40
+                }
+            ]}
+            placeholder="Ask me anything..."
+            placeholderTextColor="#999"
             value={inputText}
             onChangeText={setInputText}
-            placeholder={`Ask about your portfolio ${isRAGEnabled ? '(RAG Enabled)' : '(Standard AI)'}...`}
-            placeholderTextColor="rgba(0,0,0,0.4)"
-            onSubmitEditing={handleSend}
-            returnKeyType="send"
-            editable={!isLoading}
             multiline
+            maxLength={500}
+            autoCapitalize="none"
+            autoCorrect={false}
+            blurOnSubmit={false}
+            onSubmitEditing={() => {
+                if (inputText.trim()) {
+                    handleSend();
+                }
+            }}
+            returnKeyType="send"
+            enablesReturnKeyAutomatically
+            keyboardType="default"
+            keyboardAppearance="light"
+            textAlignVertical="center"
+            scrollEnabled={true}
+            onFocus={() => {
+                // Scroll to bottom when keyboard appears
+                setTimeout(() => {
+                    scrollViewRef.current?.scrollToEnd({ animated: true });
+                }, 100);
+            }}
           />
           <TouchableOpacity
             style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]}
@@ -1029,6 +1470,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     maxWidth: '85%',
     minWidth: '20%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   userMessage: {
     backgroundColor: '#1565C0',
@@ -1036,9 +1482,16 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 5,
   },
   botMessage: {
-    backgroundColor: '#E0E0E0',
+    backgroundColor: '#F5F5F5',
     alignSelf: 'flex-start',
     borderBottomLeftRadius: 5,
+  },
+  ragBotMessage: {
+    backgroundColor: '#E8F0F9',
+    alignSelf: 'flex-start',
+    borderBottomLeftRadius: 5,
+    borderColor: '#C9DDF0',
+    borderWidth: 1,
   },
   userMessageText: {
     fontSize: 16,

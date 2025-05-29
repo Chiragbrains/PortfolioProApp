@@ -72,4 +72,4 @@ export const refreshPortfolioEmbeddings = async (supabaseClient) => {
     console.error('Failed to update portfolio summary embeddings:', error);
     throw error;
   }
-}
+} 

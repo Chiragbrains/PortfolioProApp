@@ -1529,7 +1529,7 @@ const newStyles = StyleSheet.create({
     chatToggleButton: {
         position: 'absolute',
         right: 10,
-        bottom: 20, // Lowered from 80 to 20 to bring the chatbox button closer to the bottom/tab bar
+        bottom: 25, // Lowered from 80 to 20 to bring the chatbox button closer to the bottom/tab bar
         width: 50,
         height: 50,
         borderRadius: 25,

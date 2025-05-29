@@ -1,6 +1,6 @@
 // Updated to use investment_accounts and portfolio_summary tables
 
-/**
+/** 
  * Fetches the latest portfolio summary data.
  * @param {SupabaseClient} supabaseClient
  * @returns {Promise<Array>} Array of summary objects from portfolio_summary.
@@ -15,7 +15,7 @@ export const fetchPortfolioSummary = async (supabaseClient) => {
 
   if (error) {
     console.error('Error fetching portfolio summary:', error);
-    throw error;
+    throw error; 
   }
   console.log(`Fetched ${data?.length ?? 0} summary rows.`);
   // No need to map cost_basis, summary table has average_cost_basis etc.

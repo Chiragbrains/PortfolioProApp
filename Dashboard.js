@@ -26,6 +26,7 @@ const Dashboard = () => {
   const [selectedTimeRange, setSelectedTimeRange] = useState(90); // Default to 3M for line/bar charts
   const [selectedAsset, setSelectedAsset] = useState(null);
   const [hoveredMetric, setHoveredMetric] = useState(null);
+  const [isChartInteracting, setIsChartInteracting] = useState(false); // New state for chart interaction
   const [isValueVisible, setIsValueVisible] = useState(false);
 
   // KPI Data
@@ -472,6 +473,9 @@ const Dashboard = () => {
         return (
           <ResponsiveContainer width={chartWidth} height={screenHeight * 0.3}>
             <LineChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+              onMouseDown={() => setIsChartInteracting(true)}
+              onMouseUp={() => setIsChartInteracting(false)}
+              onMouseLeave={() => setIsChartInteracting(false)} // Reset if mouse leaves while pressed
               <defs>
                 <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
@@ -521,6 +525,9 @@ const Dashboard = () => {
         return (
           <ResponsiveContainer width={chartWidth} height={screenHeight * 0.3}>
             <BarChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+              onMouseDown={() => setIsChartInteracting(true)}
+              onMouseUp={() => setIsChartInteracting(false)}
+              onMouseLeave={() => setIsChartInteracting(false)}
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
               <XAxis 
                 dataKey="label" 
@@ -566,6 +573,9 @@ const Dashboard = () => {
               <View style={styles.allocationChart}>
                 <ResponsiveContainer width={pieChartSize} height={pieChartSize}>
                   <PieChart>
+                    onMouseDown={() => setIsChartInteracting(true)}
+                    onMouseUp={() => setIsChartInteracting(false)}
+                    onMouseLeave={() => setIsChartInteracting(false)}
                     <Pie
                       data={chartData}
                       cx="50%"
@@ -607,7 +617,12 @@ const Dashboard = () => {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer} scrollIndicatorInsets={{ right: 1 }}>
+    <ScrollView 
+      style={styles.container} 
+      contentContainerStyle={styles.contentContainer} 
+      scrollIndicatorInsets={{ right: 1 }}
+      scrollEnabled={!isChartInteracting} // Control scroll based on chart interaction
+    >
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Portfolio Dashboard</Text>
         <Text style={styles.headerSubtitle}>Interactive portfolio analytics</Text>

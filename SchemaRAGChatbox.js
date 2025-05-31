@@ -12,10 +12,8 @@ import {
   Platform,
   Dimensions,
   Animated,
-  StatusBar,
 } from 'react-native';
-import { Gesture, GestureDetector, State } from 'react-native-gesture-handler';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSupabaseConfig } from './SupabaseConfigContext';
 import { findSimilarSchemaContexts, generateSchemaEmbedding, initializeSchemaEmbeddings } from './services/embeddingService';
 // --- Langchain Imports ---
@@ -24,12 +22,12 @@ import { PromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser, JsonOutputParser } from "@langchain/core/output_parsers";
 import { RunnableSequence, RunnablePassthrough, RunnableLambda } from "@langchain/core/runnables";
 // --- End Langchain Imports ---
-import { styles, portfolioQueryStyles } from './GeneralChatbox';
+// Removed import of styles from GeneralChatbox, will define locally
 import { GROQ_API_KEY } from '@env';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const BOTTOM_BAR_HEIGHT = 80;
-const EXPANDED_HEIGHT = SCREEN_HEIGHT * 0.9;
+const PANEL_TOTAL_HEIGHT = SCREEN_HEIGHT * 0.9; // Full height of the draggable panel when expanded
+const MINIMIZED_PANEL_HEIGHT = 80; // Height of the panel when minimized at the bottom
 
 const SchemaRAGChatbox = ({ onClose }) => {
   const [messages, setMessages] = useState([
@@ -46,60 +44,67 @@ const SchemaRAGChatbox = ({ onClose }) => {
   const { supabaseClient } = useSupabaseConfig();
   
   // Animation state
-  const translateY = useRef(new Animated.Value(0)).current;
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false); // Starts expanded (not minimized)
+  const translateY = useRef(new Animated.Value(0)).current; // 0 for expanded (top of its container)
+  const dragStartTranslateY = useRef(0);
 
-  // Updated gesture handling with improved drag behavior
-  const dragGesture = Gesture.Pan()
-    .onStart(() => {
-      console.log('[SchemaRAGChatbox] Drag gesture started');
-    })
-    .onUpdate((event) => {
-      // Allow dragging up (negative values) and down (positive values)
-      // but limit the maximum upward movement
-      const newTranslateY = Math.max(
-        -EXPANDED_HEIGHT + BOTTOM_BAR_HEIGHT,
-        Math.min(0, event.translationY)
-      );
-      translateY.setValue(newTranslateY);
-    })
-    .onEnd((event) => {
-      const shouldExpand = event.velocityY < -300 || event.translationY < -50;
-      const shouldCollapse = event.velocityY > 300 || event.translationY > 50;
-      
-      if (shouldExpand && !isExpanded) {
-        // Expand the bar
+const dragGesture = Gesture.Pan()
+  .onStart(() => {
+    dragStartTranslateY.current = translateY._value;
+  })
+  .onUpdate((event) => {
+    let newY = dragStartTranslateY.current + event.translationY;
+    // Clamp newY: 0 (fully expanded) to PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT (fully minimized)
+    newY = Math.max(0, newY); // Cannot drag above its top
+    newY = Math.min(newY, PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT); // Max downward drag
+    translateY.setValue(newY);
+  })
+  .onEnd((event) => {
+    const targetExpandedY = 0;
+    const targetMinimizedY = PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT;
+    
+    if (!isMinimized) { // If currently expanded (at the top of its container)
+      // Check if dragged down enough to minimize
+      if (event.translationY > (PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT) / 2 || event.velocityY > 500) {
         Animated.spring(translateY, {
-          toValue: -EXPANDED_HEIGHT + BOTTOM_BAR_HEIGHT,
+          toValue: targetMinimizedY,
           useNativeDriver: true,
           tension: 100,
-          friction: 8,
+          friction: 10,
         }).start();
-        setIsExpanded(true);
-      } else if (shouldCollapse || (isExpanded && event.translationY > 0)) {
-        // Collapse the bar
+        setIsMinimized(true);
+      } else { // Snap back to expanded (top)
         Animated.spring(translateY, {
-          toValue: 0,
+          toValue: targetExpandedY,
           useNativeDriver: true,
           tension: 100,
-          friction: 8,
+          friction: 10,
         }).start();
-        setIsExpanded(false);
-      } else {
-        // Snap back to current state
-        const targetValue = isExpanded ? -EXPANDED_HEIGHT + BOTTOM_BAR_HEIGHT : 0;
+      }
+    } else { // If currently minimized (at the bottom)
+      // Check if dragged up enough to expand
+      if (event.translationY < -(PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT) / 3 || event.velocityY < -500) {
         Animated.spring(translateY, {
-          toValue: targetValue,
+          toValue: targetExpandedY,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 10,
+        }).start();
+        setIsMinimized(false);
+      } else { // Snap back to minimized (bottom)
+        Animated.spring(translateY, {
+          toValue: targetMinimizedY,
           useNativeDriver: true,
           tension: 100,
           friction: 8,
         }).start();
       }
-    });
+    }
+  }); // Fixed: Added semicolon and proper closing
 
-  useEffect(() => {
-    scrollViewRef.current?.scrollToEnd({ animated: true });
-  }, [messages]);
+useEffect(() => {
+  scrollViewRef.current?.scrollToEnd({ animated: true });
+}, [messages]);
 
   // Add initialization check
   useEffect(() => {
@@ -451,25 +456,38 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
     }
   };
 
-  const styles = StyleSheet.create({
+  // Define styles locally for this component
+  const componentStyles = StyleSheet.create({
     container: {
       flex: 1,
-      justifyContent: 'flex-end',
-      backgroundColor: 'transparent',
+      // This container will be positioned by App.js
+      // It should be transparent to allow the main app to be visible
+      // when the chat panel is not covering the full area.
+      backgroundColor: 'transparent', 
     },
-    bottomBar: {
+    draggablePanel: {
+      // This is the visible chat panel
       width: '100%',
+      height: PANEL_TOTAL_HEIGHT, // The full height it can occupy
       backgroundColor: '#1c1c1e',
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
+      // Rounded corners at the bottom, as it slides down from the top of its container
+      borderBottomLeftRadius: 20,
+      borderBottomRightRadius: 20,
       shadowColor: "#000",
       shadowOffset: {
         width: 0,
-        height: -2,
+        height: 2, // Shadow below the panel
       },
       shadowOpacity: 0.25,
       shadowRadius: 3.84,
       elevation: 5,
+      // Important: This view is positioned by its parent in App.js
+      // For the "drag down to minimize" behavior, it starts at top: 0 within its allocated space.
+      position: 'absolute',
+      top: 0, 
+      left: 0,
+      right: 0,
+      overflow: 'hidden', // Clip content like messages when minimized
     },
     dragHandleContainer: {
       paddingVertical: 10,
@@ -590,20 +608,20 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
     },
   });
 
-  const MessageBubble = ({ message }) => (
+  const MessageBubble = ({ message }) => ( // Using componentStyles for specificity
     <View style={[
-      styles.messageBubble,
-      message.role === 'user' ? styles.userMessage : styles.ragBotMessage
+      componentStyles.messageBubble,
+      message.role === 'user' ? componentStyles.userMessage : componentStyles.ragBotMessage
     ]}>
       <Text
-        style={message.role === 'user' ? styles.userMessageText : styles.botMessageText}
+        style={message.role === 'user' ? componentStyles.userMessageText : componentStyles.botMessageText}
         selectable={true}
       >
         {message.content}
       </Text>
       {message.mode === 'rag' && message.role === 'assistant' && (
-        <View style={[styles.modeIndicator, { padding: 2 }]}>
-          <Text style={[styles.modeIndicatorText, { fontSize: 6 }]}>SCHEMA-RAG</Text>
+        <View style={[componentStyles.modeIndicator, { padding: 2 }]}>
+          <Text style={[componentStyles.modeIndicatorText, { fontSize: 6 }]}>SCHEMA-RAG</Text>
         </View>
       )}
     </View>
@@ -611,54 +629,53 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
 
   // Modified return statement for the draggable bottom bar
   return (
-    <View style={styles.container}>
+    <View style={componentStyles.container}>
       <GestureDetector gesture={dragGesture}>
         <Animated.View
           style={[
-            styles.bottomBar,
+            componentStyles.draggablePanel,
             {
               transform: [{ translateY }],
-              height: EXPANDED_HEIGHT,
+              // Height is fixed by PANEL_TOTAL_HEIGHT in styles
             },
           ]}
         >
-          <View style={styles.dragHandleContainer}>
-            <View style={styles.dragHandle} />
+          <View style={componentStyles.dragHandleContainer}>
+            <View style={componentStyles.dragHandle} />
           </View>
           
-          <View style={styles.topBar}>
-            <View style={styles.topBarContent}>
-              <Text style={styles.topBarTitle}>Portfolio Assistant</Text>
-              <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-                <Text style={styles.closeButtonText}>×</Text>
+          <View style={componentStyles.topBar}>
+            <View style={componentStyles.topBarContent}>
+              <Text style={componentStyles.topBarTitle}>Portfolio Assistant</Text>
+              <TouchableOpacity style={componentStyles.closeButton} onPress={onClose}>
+                <Text style={componentStyles.closeButtonText}>×</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          <View style={styles.messagesWrapper}>
+          <View style={componentStyles.messagesWrapper}>
             <ScrollView
               ref={scrollViewRef}
-              style={styles.messagesContainer}
-              contentContainerStyle={styles.messagesContentContainer}
+              style={componentStyles.messagesContainer}
+              contentContainerStyle={componentStyles.messagesContentContainer}
             >
               {messages.map(message => (
                 <MessageBubble key={message.id} message={message} />
               ))}
               {isLoading && (
-                <View style={styles.loadingContainer}>
+                <View style={componentStyles.loadingContainer}>
                   <ActivityIndicator size="small" color="#4F46E5" />
                 </View>
               )}
             </ScrollView>
           </View>
-
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-            style={styles.inputContainer}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? (PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT) : 0} // Adjust offset based on minimized height
+            style={componentStyles.inputContainer}
           >
             <TextInput
-              style={styles.input}
+              style={componentStyles.input}
               value={inputText}
               onChangeText={setInputText}
               placeholder="Ask about your portfolio..."
@@ -667,11 +684,11 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
               maxHeight={120}
             />
             <TouchableOpacity
-              style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]}
+              style={[componentStyles.sendButton, (!inputText.trim() || isLoading) && componentStyles.sendButtonDisabled]}
               onPress={handleSend}
               disabled={!inputText.trim() || isLoading}
             >
-              <Text style={styles.sendButtonText}>Send</Text>
+              <Text style={componentStyles.sendButtonText}>Send</Text>
             </TouchableOpacity>
           </KeyboardAvoidingView>
         </Animated.View>

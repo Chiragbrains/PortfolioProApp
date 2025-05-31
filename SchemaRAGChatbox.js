@@ -481,12 +481,9 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
       shadowOpacity: 0.25,
       shadowRadius: 3.84,
       elevation: 5,
-      // Important: This view is positioned by its parent in App.js
-      // For the "drag down to minimize" behavior, it starts at top: 0 within its allocated space.
-      position: 'absolute',
-      top: 0, 
-      left: 0,
-      right: 0,
+      // No longer absolutely positioned within its direct parent (componentStyles.container).
+      // It will flow normally within componentStyles.container, which is flex: 1.
+      // Its positioning is now primarily dictated by the View wrapping SchemaRAGChatbox in App.js.
       overflow: 'hidden', // Clip content like messages when minimized
     },
     dragHandleContainer: {
@@ -521,6 +518,8 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
       marginTop: 'auto',
       flexDirection: 'row',
       alignItems: 'center',
+      minHeight: 300, // Ensure the input area has a minimum height
+
     },
     input: {
       flex: 1,
@@ -671,7 +670,9 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
           </View>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? (PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT) : 0} // Adjust offset based on minimized height
+            // Adjusted keyboardVerticalOffset. This might need further tuning based on your exact App.js layout.
+            // A common value for iOS if there's a bottom tab bar is that tab bar's height.
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0} 
             style={componentStyles.inputContainer}
           >
             <TextInput

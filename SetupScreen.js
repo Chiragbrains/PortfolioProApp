@@ -15,10 +15,11 @@ import Markdown from 'react-native-markdown-display';
 
 const readmeContent = `# Portfolio Pro - Quick Start Guide
 
-Welcome to Portfolio Pro! This app helps you track your stock and ETF investments easily. Here's how to get started in just a few simple steps.
+Welcome to Portfolio Pro! This app helps you track your stock and ETF investments easily with natural language portfolio analysis. Here's how to get started in just a few simple steps.
 
 ## What You'll Need
 - A free Supabase account (we'll help you create one)
+- A free Hugging Face account (for natural language features)
 - About 5 minutes of your time
 
 ## Step 1: Create Your Free Database
@@ -618,7 +619,41 @@ If you run into any issues:
 3. Contact support at support@portfoliopro.com
 
 ## Privacy Note
-Your portfolio data is stored in your own private database. The app never sees or stores your data - it only connects to your database to show you your information.`;
+Your portfolio data is stored in your own private database. The app never sees or stores your data - it only connects to your database to show you your information.
+
+## Natural Language Portfolio Analysis
+Our app uses advanced AI models from Hugging Face to provide intelligent portfolio insights. Here's what you get:
+- Ask questions about your portfolio in plain English
+- Get detailed analysis of your investments
+- Semantic search across your portfolio data
+- AI-powered investment insights
+
+### Setting up the AI Integration
+1. Create a Hugging Face Account:
+   - Go to huggingface.co and sign up
+   - Verify your email address
+   - Complete your profile
+
+2. Generate Your API Token:
+   - Go to Settings → Access Tokens
+   - Click "New token"
+   - Name: "PortfolioPro"
+   - Permission: Select "read"
+   - Click "Generate token"
+   - Copy your token immediately (you won't see it again)
+
+3. Configure in Supabase:
+   - Go to your Supabase project
+   - Navigate to Settings → Edge Functions
+   - Add a new secret named HF_API_TOKEN
+   - Paste your Hugging Face token as the value
+
+### Security Notes
+- Your Hugging Face token is stored securely in Supabase
+- The token is only used in server-side functions
+- Never share your token or include it in client-side code
+- You can revoke and regenerate the token at any time
+`;
 
 const SetupScreen = () => {
   const [url, setUrl] = useState('');

@@ -4,7 +4,13 @@ Welcome to Portfolio Pro! This app helps you track your stock and ETF investment
 
 ## What You'll Need
 - A free Supabase account (we'll help you create one)
-- About 5 minutes of your time
+- A free Hugging Face account (for AI-powered portfolio analysis)
+- About 10 minutes of your time
+
+## Understanding the Components
+- Supabase: Your secure database and serverless backend
+- Hugging Face: Provides AI models for natural language portfolio analysis
+- Edge Functions: Automated portfolio processing and AI integration
 
 ## Step 1: Create Your Free Database
 1. Go to [supabase.com](https://supabase.com) and sign up for a free account
@@ -126,7 +132,28 @@ WITH (lists = 100);
 ```
 4. Click "Run" to create your tables and functions
 
-## Step 4: Set Up Automatic Updates
+## Step 4: Set Up Hugging Face Integration
+1. Go to [Hugging Face](https://huggingface.co/) and create an account if you don't have one
+2. Go to your [Hugging Face account settings](https://huggingface.co/settings/tokens)
+3. Click "New token"
+4. Give it a name (e.g., "PortfolioPro")
+5. Select "read" access
+6. Click "Generate token" and copy the token
+
+### Why Hugging Face?
+The app uses Hugging Face's powerful language models to:
+- Understand natural language questions about your portfolio
+- Generate detailed portfolio analysis
+- Provide intelligent insights about your investments
+- Enable semantic search across your portfolio data
+
+### Important Token Security Notes
+- Keep your Hugging Face token secure
+- Never share it or commit it to version control
+- The token is stored securely in your Supabase project
+- Only used in server-side edge functions
+
+## Step 5: Set Up Automatic Updates
 1. Click "Edge Functions" in the left sidebar
 2. Click "Deploy a new function"
 3. Name it `portfolio-processor`
@@ -584,8 +611,11 @@ serve(async (req) => {
 7. Add these secrets:
    - `SUPABASE_URL`: Paste your Project URL
    - `SUPABASE_SERVICE_ROLE_KEY`: Paste your `service_role` key (found in Project Settings → API)
+   - `HF_API_TOKEN`: Paste your Hugging Face API token
 
-## Step 5: Connect the App
+Note: The HF_API_TOKEN is required for the natural language processing features of the portfolio analyzer. This enables the app to understand and answer questions about your portfolio.
+
+## Step 6: Connect the App
 1. Open the Portfolio Pro app
 2. Enter your Project URL and `anon` public key
 3. Click "Connect & Save"
@@ -598,9 +628,47 @@ That's it! Your portfolio tracker is ready to use. The app will automatically:
 
 ## Need Help?
 If you run into any issues:
-1. Make sure you copied the URL and keys correctly
-2. Check that all steps were completed
-3. Contact support at support@portfoliopro.com
+1. Make sure you copied the URL and all keys correctly (Supabase URL, service role key, and Hugging Face API token)
+2. Check that all steps were completed, including the Hugging Face setup
+3. Verify that the edge function is deployed and running
+4. Make sure your Hugging Face API token has read permissions
+5. Contact support at support@portfoliopro.com
+
+## Troubleshooting Common Issues
+1. If you see "unauthorized" errors, check your Supabase service role key
+2. If natural language features aren't working, verify your Hugging Face API token
+3. If the portfolio processor isn't updating, check the edge function logs in your Supabase dashboard
+
+### Hugging Face API Token Issues
+If you're having problems with the Hugging Face integration:
+1. Ensure your token has read permissions
+2. Try generating a new token
+3. Check the edge function logs for any API-related errors
+4. Verify the token is properly set in your Supabase edge function secrets
+
+### Testing the AI Integration
+After setting up your Hugging Face token:
+1. Deploy or redeploy the edge function
+2. Add a test portfolio entry
+3. Try asking a question in the chat interface
+4. Check the edge function logs for any errors
+5. Verify that embeddings are being generated
+
+### Debugging Common AI Issues
+1. "Invalid token" errors:
+   - Regenerate your Hugging Face token
+   - Update the token in Supabase edge function secrets
+   - Redeploy the function
+
+2. "Failed to generate embedding" errors:
+   - Check your token permissions
+   - Verify the model endpoint is available
+   - Check for rate limiting
+
+3. No AI responses:
+   - Confirm the edge function is deployed
+   - Check if embeddings were generated
+   - Review the function logs for errors
 
 ## Privacy Note
 Your portfolio data is stored in your own private database. The app never sees or stores your data - it only connects to your database to show you your information.

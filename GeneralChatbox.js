@@ -19,8 +19,6 @@ import { GROQ_API_KEY, ALPHA_VANTAGE_API_KEY } from '@env'; // Import ALPHA_VANT
 import { useSupabaseConfig } from './SupabaseConfigContext'; // Import hook
 import { LinearGradient } from 'expo-linear-gradient';
 import { generateEmbedding } from './services/embeddingService';
-import { searchRelevantContext } from './services/vectorSearchService';
-import { getRagLLMResponse, formatSQLResultsForChat } from './services/ragLlmService';
 import { saveContextToDatabase } from './services/contextStorageService';
 
 const screenHeight = Dimensions.get('window').height;
@@ -111,7 +109,7 @@ const GeneralChatbox = ({ onClose }) => {
     const systemPrompt = `You are an expert SQL generator. Your task is to translate natural language questions into SQL SELECT queries for a specific table.
 Database Schema:
 Table Name: portfolio_summary
-Columns:
+Readable Columns:
 - ticker: TEXT (Stock ticker symbol)
 - company_name: TEXT (Name of the company)
 - total_quantity: NUMERIC (Number of shares owned)
@@ -124,6 +122,8 @@ Columns:
 - portfolio_percent: NUMERIC (market_value / total_portfolio_value) shown as a percentage
 - type: TEXT (Type of asset, e.g., stock, etf or cash)
 - last_updated: TIMESTAMP (When the data was last refreshed)
+
+Note: The table also contains an embedding column used internally for vector similarity search - this should NOT be included in any queries.
 
 CRITICAL REQUIREMENTS:
 1. EVERY SQL query MUST follow this exact format: "SELECT [columns] FROM portfolio_summary [WHERE/ORDER BY/etc]"

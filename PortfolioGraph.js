@@ -440,7 +440,7 @@ export const PortfolioGraph = () => {
     const systemPrompt = `You are an expert SQL generator. Your task is to translate natural language questions into SQL SELECT queries for a specific table.
 Database Schema:
 Table Name: portfolio_summary
-Columns:
+Readable Columns:
 - ticker: TEXT (Stock ticker symbol)
 - company_name: TEXT (Name of the company)
 - total_quantity: NUMERIC (Number of shares owned)
@@ -453,6 +453,8 @@ Columns:
 - portfolio_percent: NUMERIC (market_value / total_portfolio_value) shown as a percentage
 - type: TEXT (Type of asset, e.g., stock, etf or cash)
 - last_updated: TIMESTAMP (When the data was last refreshed)
+
+Note: The table also contains an embedding column used internally for vector similarity search - this should NOT be included in any queries.
 
 Constraints:
 1. ONLY generate SQL SELECT queries. Do not generate INSERT, UPDATE, DELETE, or any other type of SQL statement.

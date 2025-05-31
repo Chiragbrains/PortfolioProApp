@@ -11,14 +11,12 @@ import { generateEmbedding } from './services/embeddingService';
 import { searchRelevantContext } from './services/vectorSearchService';
 import { getRagLLMResponse, formatSQLResultsForChat } from './services/ragLlmService';
 import { saveContextToDatabase } from './services/contextStorageService';
-// Import a shared FormattedLLMResponse component if you have one, or define it here/inline
-// For now, we'll use a simpler text display.
 
 const screenHeight = Dimensions.get('window').height;
 
 const RAGChatbox = ({ onClose }) => {
   const [messages, setMessages] = useState([
-    { id: 'rag-1', text: 'Hello! How can I help you with your portfolio today? (RAG Enabled)', sender: 'bot' },
+    { id: 'rag-1', role: 'assistant', content: 'Hello! How can I help you with your portfolio today? (RAG Enabled)', mode: 'standard' },
   ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -35,7 +33,6 @@ const RAGChatbox = ({ onClose }) => {
     if (!sqlQuery || typeof sqlQuery !== 'string' || !sqlQuery.trim().toUpperCase().startsWith('SELECT')) {
       throw new Error("Invalid or non-SELECT SQL query provided.");
     }
-    // Using the generic rpc 'execute_sql' if you have it, or a specific one for portfolio_summary
     const { data, error } = await supabaseClient.rpc('execute_sql', { sql_query: sqlQuery });
     if (error) {
       console.error("Supabase RPC error executing SQL:", error);
@@ -48,83 +45,54 @@ const RAGChatbox = ({ onClose }) => {
     const userQuery = inputText.trim();
     if (userQuery.length === 0 || isLoading) return;
 
-    const newUserMessage = { id: String(Date.now()), text: userQuery, sender: 'user' };
-    setMessages(prevMessages => [...prevMessages, newUserMessage]);
+    setMessages(prevMessages => [...prevMessages, {
+      id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      role: 'user',
+      content: userQuery
+    }]);
     setInputText('');
     setIsLoading(true);
 
-    let botResponse = { id: String(Date.now() + 1), text: "Thinking...", sender: 'bot' };
-    setMessages(prevMessages => [...prevMessages, botResponse]);
-
     try {
+      let finalAnswer;
+
       if (isRAGEnabled) {
-        // RAG mode logic
         const queryEmbedding = await generateEmbedding(userQuery);
         if (!queryEmbedding) {
-          throw new Error("Could not generate embedding for the query. Please try again.");
+          throw new Error("Could not generate query embedding");
         }
 
-        const { results: retrievedContexts } = await searchRelevantContext(supabaseClient, queryEmbedding, userQuery, 5, 0.65);
-        if (!retrievedContexts || retrievedContexts.length === 0) {
-          console.warn("No relevant context found for the query.");
-        }
-
-        const llmDecision = await getRagLLMResponse(userQuery, retrievedContexts || []);
-
-        let finalAnswer = "Sorry, I encountered an issue.";
-        let sqlQuery = null;
-        let sqlResults = null;
-
-        if (llmDecision.type === 'sql') {
+        const relevantContext = await searchRelevantContext(queryEmbedding);
+        if (relevantContext && relevantContext.sql) {
           try {
-            sqlQuery = llmDecision.content;
-            // Remove the SQL query display
-            botResponse = { ...botResponse, text: "Fetching data..." };
-            setMessages(prevMessages => prevMessages.map(m => m.id === botResponse.id ? botResponse : m));
-
-            sqlResults = await fetchPortfolioDataFromSupabase(sqlQuery);
-            if (!sqlResults || sqlResults.length === 0) {
-              finalAnswer = "No data was found for your query.";
-            } else {
-              finalAnswer = await formatSQLResultsForChat(userQuery, sqlQuery, sqlResults);
-            }
+            const sqlResults = await fetchPortfolioDataFromSupabase(relevantContext.sql);
+            finalAnswer = await formatSQLResultsForChat(userQuery, relevantContext.sql, sqlResults);
+            mode = 'rag-sql';
           } catch (sqlError) {
             console.error("SQL execution error:", sqlError);
             finalAnswer = `Error executing the query: ${sqlError.message}`;
+            mode = 'error';
           }
-        } else if (llmDecision.type === 'text') {
-          finalAnswer = llmDecision.content;
-        } else if (llmDecision.type === 'unanswerable') {
-          finalAnswer = llmDecision.content;
-        } else if (llmDecision.type === 'error') {
-          finalAnswer = llmDecision.content;
+        } else {
+          // Fallback to standard RAG
+          finalAnswer = await getRagLLMResponse(userQuery, relevantContext?.data || []);
+          mode = 'rag-embedding';
         }
-
-        // 4. Save the question and answer to the context table
-        const saveResult = await saveContextToDatabase(supabaseClient, {
-          userQuery,
-          finalAnswer,
-          sqlQuery,
-          sqlResults
-        });
-
-        if (!saveResult.saved && saveResult.existingMatch) {
-          console.log('Using existing answer from database');
-          // Use the existing answer if it's a very similar question
-          if (saveResult.existingMatch.metadata?.answer) {
-            finalAnswer = saveResult.existingMatch.metadata.answer;
-          }
-        }
-
-        botResponse = { ...botResponse, text: finalAnswer };
       } else {
-        // Standard AI mode logic
-        const llmDecision = await getRagLLMResponse(userQuery, []);
-        // ... rest of standard AI logic ...
+        // Standard AI mode
+        finalAnswer = await getRagLLMResponse(userQuery, []);
+        mode = 'standard';
       }
 
+      setMessages(prevMessages => [...prevMessages, {
+        id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        role: 'assistant',
+        content: finalAnswer || "I apologize, but I couldn't process that request.",
+        mode: mode
+      }]);
+
     } catch (error) {
-      console.error("Error in RAG handleSend:", error);
+      console.error("Error in handleSend:", error);
       let errorMessage = "Sorry, an error occurred while processing your request.";
       
       if (error.message.includes("Supabase client not available")) {
@@ -135,25 +103,94 @@ const RAGChatbox = ({ onClose }) => {
         errorMessage = "There was an issue connecting to the AI service. Please try again later.";
       }
       
-      botResponse = { ...botResponse, text: errorMessage };
+      setMessages(prevMessages => [...prevMessages, {
+        id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        role: 'assistant',
+        content: errorMessage,
+        mode: 'error'
+      }]);
     } finally {
-      setMessages(prevMessages => prevMessages.map(m => m.id === botResponse.id ? botResponse : m));
       setIsLoading(false);
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }
   };
 
-  // Update message rendering to remove SQL display
-  const renderMessage = (msg) => {
-    const isUser = msg.sender === 'user';
-    return <Text style={isUser ? styles.userMessageText : styles.botMessageText}>{msg.text}</Text>;
+  // FormattedLLMResponse component for formatting messages with P&L values and ticker symbols
+  const FormattedLLMResponse = ({ text }) => {
+    if (!text) return null;
+    const lines = text.split('\n');
+
+    const renderTextWithPL = (lineText) => {
+      const pnlRegex = /(-\$?\s*[\d,]+\.\d{2}\s*,\s*-?\s*\d+\.?\d*\s*%|\$?\s*[\d,]+\.\d{2}\s*,\s*\+?\s*\d+\.?\d*\s*%)/g;
+      const pnlParts = lineText.split(pnlRegex);
+
+      return pnlParts.map((pnlPart, pnlIndex) => {
+        if (pnlPart && pnlPart.match(pnlRegex)) {
+          const isNegative = pnlPart.startsWith('-') || pnlPart.includes(' -');
+          return <Text key={`pnl-${pnlIndex}`} style={isNegative ? styles.negativeChange : styles.positiveChange}>{pnlPart}</Text>;
+        } else if (pnlPart) {
+          const tickerSplitRegex = /(\b[A-Z]{2,5}\b|\([A-Z]{1,5}\)|(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*))/g;
+          const textParts = pnlPart.split(tickerSplitRegex);
+          
+          return textParts.map((textPart, textIndex) => {
+            if (textPart && textPart.match(tickerSplitRegex)) {
+              let tickerSymbol = textPart;
+              let openParen = '';
+              let closeParen = '';
+              
+              if (textPart.startsWith('(') && textPart.endsWith(')')) {
+                tickerSymbol = textPart.substring(1, textPart.length - 1);
+                openParen = '(';
+                closeParen = ')';
+              }
+
+              return (
+                <Text key={`ticker-${pnlIndex}-${textIndex}`}>
+                  {openParen}
+                  <Text style={{ fontWeight: 'bold' }}>{tickerSymbol}</Text>
+                  {closeParen}
+                </Text>
+              );
+            }
+            return <Text key={`text-${pnlIndex}-${textIndex}`}>{textPart}</Text>;
+          }).filter(Boolean);
+        }
+        return null;
+      }).filter(Boolean);
+    };
+
+    return (
+      <View style={styles.llmTextResponseContainer}>
+        {lines.map((line, index) => {
+          line = line.trim();
+          if (line.startsWith('* ')) {
+            return (
+              <View key={index} style={styles.bulletItemContainer}>
+                <Text style={styles.bulletPoint}>•</Text>
+                <Text style={styles.bulletText}>
+                  {renderTextWithPL(line.substring(2))}
+                </Text>
+              </View>
+            );
+          } else if (line.length > 0) {
+            return (
+              <Text key={index} style={styles.llmParagraph}>
+                {renderTextWithPL(line)}
+              </Text>
+            );
+          }
+          return null;
+        })}
+      </View>
+    );
   };
 
   return (
     <View style={styles.chatboxContainer}>
       <LinearGradient
         colors={['#2A0B4A', '#3B0764', '#1A1A2E']}
-        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+        start={{ x: 0, y: 0 }} 
+        end={{ x: 1, y: 1 }}
         style={styles.topBar}
       >
         <Pressable style={styles.topBarPressable} onPress={onClose}>
@@ -179,7 +216,7 @@ const RAGChatbox = ({ onClose }) => {
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingViewInternal}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0} // Adjust as needed
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
       >
         <View style={styles.chatContainer}>
           <ScrollView
@@ -192,10 +229,26 @@ const RAGChatbox = ({ onClose }) => {
                 key={msg.id}
                 style={[
                   styles.messageBubble,
-                  msg.sender === 'user' ? styles.userMessage : styles.botMessage,
+                  msg.role === 'user' ? styles.userMessage : (msg.mode && msg.mode.startsWith('rag') ? styles.ragBotMessage : styles.botMessage),
                 ]}
               >
-                {renderMessage(msg)}
+                {msg.role === 'assistant' && msg.content ? (
+                  <FormattedLLMResponse text={msg.content} />
+                ) : (
+                  <Text style={msg.role === 'user' ? styles.userMessageText : styles.botMessageText}>
+                    {msg.content}
+                  </Text>
+                )}
+                {msg.role === 'assistant' && msg.mode && (
+                  <View style={styles.modeIndicator}>
+                    <Text style={styles.modeIndicatorText}>
+                      {msg.mode === 'rag-sql' ? 'SQL RAG' :
+                       msg.mode === 'rag-embedding' ? 'Embedding RAG' :
+                       msg.mode === 'standard' ? 'Standard AI' :
+                       msg.mode === 'error' ? 'Error' : ''}
+                    </Text>
+                  </View>
+                )}
               </View>
             ))}
             {isLoading && (
@@ -210,13 +263,18 @@ const RAGChatbox = ({ onClose }) => {
               style={styles.input}
               value={inputText}
               onChangeText={setInputText}
-              placeholder="Ask about your portfolio (RAG)..."
+              placeholder="Ask about your portfolio..."
               placeholderTextColor="rgba(0,0,0,0.4)"
               onSubmitEditing={handleSend}
               returnKeyType="send"
               editable={!isLoading}
+              multiline
             />
-            <TouchableOpacity style={[styles.sendButton, isLoading && styles.sendButtonDisabled]} onPress={handleSend} disabled={isLoading}>
+            <TouchableOpacity
+              style={[styles.sendButton, isLoading && styles.sendButtonDisabled]}
+              onPress={handleSend}
+              disabled={isLoading}
+            >
               <Text style={styles.sendButtonText}>Send</Text>
             </TouchableOpacity>
           </View>
@@ -226,41 +284,140 @@ const RAGChatbox = ({ onClose }) => {
   );
 };
 
-// Use styles similar to GeneralChatbox.js, with minor adjustments if needed
-// For brevity, I'm pointing to GeneralChatbox's styles.
-// You would copy GeneralChatbox.styles and potentially tweak colors for RAGChatbox.
-import { styles as generalChatboxStyles } from './GeneralChatbox'; // Assuming styles are exported
-
+// Styles that match GeneralChatbox with some RAG-specific overrides
 const styles = StyleSheet.create({
-  ...generalChatboxStyles, // Spread existing styles
-  topBar: { // Override or add specific styles
-    ...generalChatboxStyles.topBar,
-    // backgroundColor: '#2A0B4A', // Example override if LinearGradient is removed
+  chatboxContainer: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 600,
+    alignSelf: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    overflow: 'hidden',
+    flexDirection: 'column'
+  },
+  topBar: {
+    height: 70,
+    paddingHorizontal: 20,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  chatContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  messagesContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 15,
+  },
+  messagesContentContainer: {
+    padding: 15,
+    paddingBottom: 20,
+  },
+  messageBubble: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 18,
+    marginBottom: 12,
+    maxWidth: '85%',
+    minWidth: '20%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  userMessage: {
+    backgroundColor: '#1565C0',
+    alignSelf: 'flex-end',
+    borderBottomRightRadius: 5,
   },
   botMessage: {
-    ...generalChatboxStyles.botMessage,
-    backgroundColor: '#E6E6FA', // Lavender for RAG bot
+    backgroundColor: '#F5F5F5',
+    alignSelf: 'flex-start',
+    borderBottomLeftRadius: 5,
+  },
+  ragBotMessage: {
+    backgroundColor: '#E8F0F9',
+    alignSelf: 'flex-start',
+    borderBottomLeftRadius: 5,
+    borderColor: '#C9DDF0',
+    borderWidth: 1,
+  },
+  userMessageText: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    lineHeight: 22,
+  },
+  botMessageText: {
+    fontSize: 16,
+    color: '#000000',
+    lineHeight: 22,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: 15,
+    borderTopColor: '#E0E7F1',
+    backgroundColor: '#FFFFFF',
+    padding: 1,
   },
   input: {
-    ...generalChatboxStyles.input,
-    color: '#000000', // Black text for input
-    backgroundColor: 'rgba(230, 230, 250, 0.5)', // Light lavender background
+    flex: 1,
+    color: '#000000',
+    fontSize: 16,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 5,
+    marginRight: 20,
+    minHeight: 48,
+    maxHeight: 120,
   },
   sendButton: {
-    ...generalChatboxStyles.sendButton,
-    backgroundColor: '#8A2BE2', // BlueViolet
+    marginLeft: 20,
+    backgroundColor: '#10b981',
+    borderRadius: 24,
+    padding: 12,
+    minWidth: 90,
+    alignItems: 'center',
   },
   sendButtonDisabled: {
     backgroundColor: '#BFBFDF',
   },
-  loadingContainer: { ...generalChatboxStyles.loadingContainer, alignItems: 'center', paddingVertical: 10 },
-  thinkingText: { marginLeft: 10, color: '#555'},
-  sqlBlock: { fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace', backgroundColor: '#f0f0f0', padding: 8, marginVertical: 4, borderRadius: 4, color: '#333' },
+  sendButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  loadingContainer: {
+    alignSelf: 'flex-start',
+    padding: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  thinkingText: {
+    marginLeft: 10,
+    color: '#555',
+  },
   topBarContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     flex: 1,
+    paddingVertical: 12,
+  },
+  topBarTitle: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   toggleContainer: {
     flexDirection: 'row',
@@ -271,6 +428,68 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginRight: 8,
     fontSize: 14,
+  },
+  closeButton: {
+    padding: 10,
+    borderRadius: 20,
+    backgroundColor: '#8b5cf6',
+    marginLeft: 12,
+  },
+  closeButtonText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  modeIndicator: {
+    position: 'absolute',
+    bottom: 4,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  modeIndicatorText: {
+    fontSize: 10,
+    color: 'rgba(0, 0, 0, 0.6)',
+    fontWeight: '500',
+  },
+  // Message formatting styles
+  llmTextResponseContainer: {
+    paddingVertical: 8,
+  },
+  llmParagraph: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#222',
+    marginBottom: 8,
+  },
+  bulletItemContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+    paddingLeft: 8,
+  },
+  bulletPoint: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#00529B',
+    marginRight: 8,
+    fontWeight: 'bold',
+  },
+  bulletText: {
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#222',
+  },
+  positiveChange: {
+    color: '#2E7D32',
+    fontWeight: '500',
+  },
+  negativeChange: {
+    color: '#C62828',
+    fontWeight: '500',
   },
 });
 

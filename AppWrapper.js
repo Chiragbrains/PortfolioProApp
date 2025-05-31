@@ -1,13 +1,29 @@
 // /AppWrapper.js (New File or rename index.js/entry point)
-import React from 'react';
+import React, { useEffect } from 'react';
 import App from './App'; // Your existing App component
 import SetupScreen from './SetupScreen';
 import { SupabaseConfigProvider, useSupabaseConfig } from './SupabaseConfigContext';
 import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler'; // Needed for PortfolioGraph gestures
+import { initializeSchemaEmbeddings } from './services/embeddingService';
 
 const AppContent = () => {
-  const { isConfigured, isLoading, configError } = useSupabaseConfig();
+  const { isConfigured, isLoading, configError, supabase } = useSupabaseConfig();
+
+  useEffect(() => {
+    const initializeApp = async () => {
+      try {
+        // Initialize schema embeddings if needed
+        if (supabase) {
+          await initializeSchemaEmbeddings(supabase);
+        }
+      } catch (error) {
+        console.error('Error during app initialization:', error);
+      }
+    };
+
+    initializeApp();
+  }, [supabase]); // Re-run if supabase instance changes
 
   if (isLoading) {
     return (

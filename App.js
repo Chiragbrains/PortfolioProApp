@@ -15,6 +15,7 @@ import { TrendingUp, BarChart3, BarChart4, BarChartHorizontal, LineChart, PieCha
 import { Animated as RNAnimated } from 'react-native';
 import PortfolioSummary from './PortfolioSummary'; // Import PortfolioSummary
 import Header from './components/Header';
+import SchemaRAGChatbox from './SchemaRAGChatbox';
 
 // --- Import Service Functions ---
 import {
@@ -25,10 +26,8 @@ import {
 
 // --- Import Components ---
 import AddStockForm from './AddStockForm';
-import { PortfolioGraph } from './PortfolioGraph';
 import { useSupabaseConfig } from './SupabaseConfigContext';
 import GeneralChatbox from './GeneralChatbox'; // Existing
-import RAGChatbox from './RAGChatbox'; // Import the new RAG Chatbox
 import { setupPortfolioSubscription } from './services/portfolioService';
 
 // --- Helper Functions ---
@@ -42,7 +41,6 @@ import MenuDrawer from './components/MenuDrawer';
 import ImportConfirmationModal from './components/ImportConfirmationModal';
 import PopupNotification from './components/PopupNotification';
 import AccountCard from './components/AccountCard';
-import UnifiedChatbox from './UnifiedChatbox';
 
 // --- Main App Component ---
 export default function App() {
@@ -901,7 +899,9 @@ export default function App() {
                         <View style={[newStyles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
                             <Pressable onPress={e => e.stopPropagation()}>
                                 <View style={newStyles.chatboxModalContainer}>
-                                    <GeneralChatbox onClose={() => setIsChatboxVisible(false)} />
+                                    {/* Temporarily disabled GeneralChatbox */}
+                                    {/* <GeneralChatbox onClose={() => setIsChatboxVisible(false)} /> */}
+                                    <SchemaRAGChatbox onClose={() => setIsChatboxVisible(false)} />
                                 </View>
                             </Pressable>
                         </View>

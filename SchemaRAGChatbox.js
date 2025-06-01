@@ -36,9 +36,9 @@ import { SchemaRAGChatbox as SchemaRAGChatboxUI } from './SchemaRAGChatbox.jsx';
 
 import { GROQ_API_KEY } from '@env';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const PANEL_TOTAL_HEIGHT = SCREEN_HEIGHT * 0.9;
-const MINIMIZED_PANEL_HEIGHT = SCREEN_HEIGHT * 0.53;
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+const PANEL_TOTAL_HEIGHT = SCREEN_HEIGHT * 1;
+const MINIMIZED_PANEL_HEIGHT = SCREEN_HEIGHT * 0.57; // Reduced height to ensure input field is visible
 
 const SchemaRAGChatbox = ({ onClose }) => {
   // State management
@@ -512,6 +512,7 @@ const componentStyles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+    zIndex: 1000,
   },
   draggablePanel: {
     width: '100%',
@@ -527,17 +528,19 @@ const componentStyles = StyleSheet.create({
     overflow: 'hidden',
     position: 'absolute',
     bottom: 0,
-    zIndex: 3,
+    zIndex: 1000,
+    display: 'flex',
+    flexDirection: 'column',
   },
   dragHandleContainer: {
     paddingVertical: 10,
     alignItems: 'center',
-    backgroundColor: '#1A2E4C',
+    backgroundColor: '#7C3AED',
   },
   dragHandle: {
     width: 40,
     height: 4,
-    backgroundColor: '#666',
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
     borderRadius: 2,
   },
 });

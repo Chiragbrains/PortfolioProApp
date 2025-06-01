@@ -16,8 +16,6 @@ import {
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const PANEL_MIN_HEIGHT = 80;
-const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.9; // This constant is not used in this file after changes
 
 export const SchemaRAGChatbox = ({
   messages = [],
@@ -65,8 +63,7 @@ export const SchemaRAGChatbox = ({
       <ScrollView
         ref={scrollViewRef}
         style={styles.messageArea}
-        // Add padding to the bottom of the ScrollView's content to make space for the inputArea
-        contentContainerStyle={{ paddingBottom: (styles.inputArea.paddingVertical || styles.inputArea.padding || 0) * 2 + (styles.input.height || 40) }}
+        contentContainerStyle={styles.messageContentContainer}
         onContentSizeChange={scrollToBottom}
         keyboardShouldPersistTaps="handled"
       >
@@ -111,68 +108,134 @@ export const SchemaRAGChatbox = ({
 };
 
 const styles = StyleSheet.create({
-  chatUIContainer: { // Renamed from chatboxContainer to avoid confusion with parent's panel style
-    backgroundColor: '#2C3E50',
-    // borderTopLeftRadius and borderTopRightRadius are handled by the parent draggable panel
+  chatUIContainer: {
+    backgroundColor: '#1E1B4B',
     overflow: 'hidden',
     flexDirection: 'column',
-    // justifyContent: 'space-between', // flexGrow:1 on ScrollView will handle this
-    flex: 1, 
+    flex: 1,
+    display: 'flex',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 8,
     paddingHorizontal: 15,
-    backgroundColor: '#1A2E4C', // Header color
+    backgroundColor: '#7C3AED',
+    height: 36,
   },
   headerTitle: {
     color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   closeButton: {
-    padding: 5,
+    padding: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
   },
   closeButtonText: {
     color: 'white',
-    fontSize: 20,
+    fontSize: 18,
+    fontWeight: '500',
   },
   messageArea: { 
-    padding: 10, 
-    flexGrow: 1,
+    flex: 1,
+    padding: 10,
+    marginBottom: 60,
+    backgroundColor: '#1E1B4B',
   },
-  message: { padding: 10, borderRadius: 8, marginBottom: 8, maxWidth: '80%' },
-  userMessage: { backgroundColor: '#0066cc', alignSelf: 'flex-end' }, // User message blue
-  botMessage: { backgroundColor: '#3B597D', alignSelf: 'flex-start' }, // Bot message slightly lighter dark
-  userText: { color: 'white' },
-  botText: { color: 'white' },
+  messageContentContainer: {
+    paddingBottom: 80,
+  },
+  message: { 
+    padding: 12, 
+    borderRadius: 16, 
+    marginBottom: 8, 
+    maxWidth: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  userMessage: { 
+    backgroundColor: '#7C3AED',
+    alignSelf: 'flex-end',
+    borderBottomRightRadius: 4,
+  },
+  botMessage: { 
+    backgroundColor: '#312E81',
+    alignSelf: 'flex-start',
+    borderBottomLeftRadius: 4,
+  },
+  userText: { 
+    color: 'white',
+    fontSize: 15,
+    lineHeight: 20,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+  },
+  botText: { 
+    color: 'white',
+    fontSize: 15,
+    lineHeight: 20,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+  },
   inputArea: { 
     flexDirection: 'row', 
-    padding: 10, 
+    padding: 12, 
     borderTopWidth: 1, 
-    borderTopColor: '#3B597D', 
-    backgroundColor: '#1A2E4C',
-    // No longer absolutely positioned; KeyboardAvoidingView will handle it.
+    borderTopColor: '#312E81', 
+    backgroundColor: '#1E1B4B',
+    position: 'absolute',
+    top: '87%',
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    transform: [{ translateY: -20 }],
   },
   input: { 
     flex: 1, 
-    backgroundColor: '#2C3E50', 
+    backgroundColor: '#312E81', 
     color: 'white', 
-    borderRadius: 5, 
-    paddingHorizontal: 10, 
+    borderRadius: 20, 
+    paddingHorizontal: 15, 
     marginRight: 10, 
-    height: 40, 
+    height: 44, 
     borderWidth: 1, 
-    borderColor: '#3B597D',
-    minHeight: 40,
+    borderColor: '#7C3AED',
+    minHeight: 44,
+    fontSize: 15,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
   },
-  sendButton: { backgroundColor: '#0066cc', borderRadius: 5, paddingVertical: 10, paddingHorizontal: 15, justifyContent: 'center', alignItems: 'center', minWidth: 70, height: 40 },
+  sendButton: { 
+    backgroundColor: '#7C3AED', 
+    borderRadius: 22, 
+    paddingVertical: 10, 
+    paddingHorizontal: 20, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    minWidth: 80, 
+    height: 44,
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
   sendButtonDisabled: {
-    backgroundColor: '#555', // Darker, disabled look
+    backgroundColor: '#4C1D95',
+    opacity: 0.7,
   },
-  sendButtonText: { color: 'white', fontWeight: 'bold' },
+  sendButtonText: { 
+    color: 'white', 
+    fontWeight: '600',
+    fontSize: 15,
+    letterSpacing: 0.5,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
+  },
 });
 
 export default SchemaRAGChatbox;

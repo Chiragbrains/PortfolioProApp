@@ -94,73 +94,69 @@ const PortfolioSummary = ({ summaryData, onMenuPress }) => {
 
 const styles = StyleSheet.create({
   summaryCard: {
-    borderRadius: 14,
-    paddingVertical: 6, // Reduce vertical padding
-    paddingHorizontal: 10, // Slightly less horizontal padding
-    marginHorizontal: 15,
-    marginTop: 10, // Less top margin
-    marginBottom: 4, // Less bottom margin
+    borderRadius: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
     width: 'auto',
     alignSelf: 'stretch',
     minWidth: 0,
     maxWidth: '100%',
-    minHeight: 60, // Lower min height
+    minHeight: 50,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.10,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 3,
     overflow: 'hidden',
     justifyContent: 'center',
-    position: 'relative', // For absolute menu icon
+    position: 'relative',
   },
   menuIconTouchable: {
     position: 'absolute',
-    top: 15,
-    left: 8,
+    top: 12,
+    left: 6,
     zIndex: 10,
-    backgroundColor: 'transparent', // No background
+    backgroundColor: 'transparent',
     padding: 2,
   },
   summaryHeaderTouchable: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 2, // Less vertical padding
-    // Menu icon: left 8, width ~32. Effective right edge ~40px from card edge.
-    // summaryCard has paddingHorizontal: 10.
-    // So, paddingLeft for summaryHeaderTouchable content = (40 for icon + 8 for gap) - 10 from card = 38.
-    paddingLeft: 38, 
-    flex: 1, // Allow it to take available width in the card.
+    paddingVertical: 2,
+    paddingLeft: 32,
+    flex: 1,
   },
-  headerContentWrapper: { // New wrapper for label and right items
+  headerContentWrapper: {
     flex: 1,
     flexDirection: 'row',
-    justifyContent: 'space-between', // Pushes label left, and the group of right items right
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  headerRightItemsGroup: { // New style for the group of items on the right
+  headerRightItemsGroup: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   summaryLabel: {
-    fontSize: 16, // Much larger for dashboard style
+    fontSize: 14,
     color: '#fff',
     fontWeight: 'bold',
     textAlign: 'left',
-    // flex: 1, // Removed: justifyContent:space-between on parent will handle spacing.
     letterSpacing: 0.5,
-    marginRight: 8, // Add a small gap before the right items group
+    marginRight: 6,
   },
   summaryValue: {
-    fontSize: 20,
+    fontSize: 16,
     textAlign: 'right',
     flex: 1,
     fontWeight: '700',
     color: '#fff',
-    marginRight: 8,
+    marginRight: 6,
   },
   summaryCollapseIcon: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#B6C2DF',
   },
   summaryContentContainer: {
@@ -174,20 +170,20 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   summaryPnlText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     marginRight: 4,
     color: '#fff',
   },
   summaryPnlPercent: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
     color: '#B6C2DF',
   },
   summarySeparator: {
     height: 1,
     backgroundColor: '#27395A',
-    marginVertical: 8,
+    marginVertical: 6,
   },
   summaryBreakdownContainer: {
     flexDirection: 'row',
@@ -197,27 +193,27 @@ const styles = StyleSheet.create({
   },
   summaryStatItem: {
     alignItems: 'center',
-    minWidth: 60,
+    minWidth: 50,
     marginBottom: 0,
     paddingHorizontal: 2,
   },
   summaryStatValue: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: '#fff',
     marginBottom: 1,
   },
   summaryStatLabel: {
-    fontSize: 10,
+    fontSize: 9,
     color: '#B6C2DF',
     textAlign: 'center',
   },
   visibilityButton: {
-    padding: 4,
-    marginRight: 6,
+    padding: 3,
+    marginRight: 4,
   },
   visibilityIcon: {
-    fontSize: 18,
+    fontSize: 14,
     color: '#B6C2DF',
   },
 });

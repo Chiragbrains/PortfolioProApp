@@ -318,6 +318,11 @@ const Dashboard = () => {
 
   const toggleValueVisibility = () => setIsValueVisible(v => !v);
 
+  // Handle pie chart click
+  const handlePieClick = (data) => {
+    setSelectedAsset(selectedAsset === data.text ? null : data.text);
+  };
+
   // --- Render Functions ---
   const renderKpiCards = () => {
     if (isLoadingKpis) return <ActivityIndicator color="#8b5cf6" style={{ marginVertical: 20 }} />;
@@ -472,10 +477,13 @@ const Dashboard = () => {
       case 'valueTrend':
         return (
           <ResponsiveContainer width={chartWidth} height={screenHeight * 0.3}>
-            <LineChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+            <LineChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               onMouseDown={() => setIsChartInteracting(true)}
               onMouseUp={() => setIsChartInteracting(false)}
-              onMouseLeave={() => setIsChartInteracting(false)} // Reset if mouse leaves while pressed
+              onMouseLeave={() => setIsChartInteracting(false)}
+              onTouchStart={() => setIsChartInteracting(true)}
+              onTouchEnd={() => setIsChartInteracting(false)}
+            >
               <defs>
                 <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
@@ -524,10 +532,13 @@ const Dashboard = () => {
       case 'weeklyPnl':
         return (
           <ResponsiveContainer width={chartWidth} height={screenHeight * 0.3}>
-            <BarChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+            <BarChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               onMouseDown={() => setIsChartInteracting(true)}
               onMouseUp={() => setIsChartInteracting(false)}
               onMouseLeave={() => setIsChartInteracting(false)}
+              onTouchStart={() => setIsChartInteracting(true)}
+              onTouchEnd={() => setIsChartInteracting(false)}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
               <XAxis 
                 dataKey="label" 
@@ -550,13 +561,17 @@ const Dashboard = () => {
       case 'allocation':
         return (
           <View style={{ alignItems: 'center', paddingVertical: 20 }}>
-            <View style={[styles.allocationContainer, { width: '100%' }]}> {/* Ensure full width for flex */}
+            <View style={[styles.allocationContainer, { width: '100%' }]}>
               <View style={styles.allocationLegend}>
                 {chartData.map((item, index) => (
-                  <View key={index} style={[
-                    styles.allocationLegendItem,
-                    selectedAsset === item.text && styles.selectedLegendItem
-                  ]}>
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.allocationLegendItem,
+                      selectedAsset === item.text && styles.selectedLegendItem
+                    ]}
+                    onPress={() => handlePieClick(item)}
+                  >
                     <View style={[styles.allocationColorBox, { backgroundColor: item.color }]} />
                     <View style={styles.allocationLegendText}>
                       <Text style={styles.allocationLabel}>{item.text}</Text>
@@ -567,15 +582,24 @@ const Dashboard = () => {
                         <Text style={styles.allocationValue}>{formatCurrency(item.value)}</Text>
                       )}
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
               <View style={styles.allocationChart}>
                 <ResponsiveContainer width={pieChartSize} height={pieChartSize}>
-                  <PieChart>
+                  <PieChart
                     onMouseDown={() => setIsChartInteracting(true)}
                     onMouseUp={() => setIsChartInteracting(false)}
-                    onMouseLeave={() => setIsChartInteracting(false)}
+                    onMouseLeave={() => {
+                      setIsChartInteracting(false);
+                      setSelectedAsset(null);
+                    }}
+                    onTouchStart={() => setIsChartInteracting(true)}
+                    onTouchEnd={() => {
+                      setIsChartInteracting(false);
+                      setSelectedAsset(null);
+                    }}
+                  >
                     <Pie
                       data={chartData}
                       cx="50%"
@@ -584,18 +608,23 @@ const Dashboard = () => {
                       innerRadius={pieChartSize / 2.8}
                       paddingAngle={5}
                       dataKey="value"
-                      onPress={(data) => setSelectedAsset(data.text)}
+                      onClick={handlePieClick}
                     >
                       {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={entry.color}
+                          stroke={selectedAsset === entry.text ? '#ffffff' : 'none'}
+                          strokeWidth={selectedAsset === entry.text ? 2 : 0}
+                        />
                       ))}
                     </Pie>
                     <Tooltip 
                       content={({ active, payload }) => {
                         if (active && payload && payload.length) {
                           return (
-                            <View style={styles.tooltipContainer}>
-                              <Text style={styles.tooltipValue}>
+                            <View style={[styles.tooltipContainer, { backgroundColor: 'transparent', borderWidth: 0, padding: 0 }]}>
+                              <Text style={[styles.tooltipValue, { color: '#8b5cf6', fontSize: 16, fontWeight: '600' }]}>
                                 {formatCurrency(payload[0].value)}
                               </Text>
                             </View>
@@ -603,6 +632,7 @@ const Dashboard = () => {
                         }
                         return null;
                       }}
+                      cursor={false}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -621,7 +651,7 @@ const Dashboard = () => {
       style={styles.container} 
       contentContainerStyle={styles.contentContainer} 
       scrollIndicatorInsets={{ right: 1 }}
-      scrollEnabled={!isChartInteracting} // Control scroll based on chart interaction
+      scrollEnabled={!isChartInteracting} // Disable scrolling when chart is being interacted with
     >
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Portfolio Dashboard</Text>
@@ -945,6 +975,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 12,
+    outlineWidth: 0,
+    outlineColor: 'transparent',
   },
   allocationColorBox: {
     width: 20,
@@ -981,6 +1013,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(139, 92, 246, 0.15)',
     borderWidth: 1,
     borderColor: 'rgba(139, 92, 246, 0.3)',
+    outlineWidth: 0,
+    outlineColor: 'transparent',
   },
   gradientCard: {
     backgroundColor: 'rgba(31, 41, 55, 0.7)',

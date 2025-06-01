@@ -832,7 +832,7 @@ export default function App() {
     // --- Main Render ---
     return (
         <SafeAreaView style={newStyles.safeArea}>
-            <Header onMenuPress={() => setMenuVisible(true)} />
+            {/* <Header onMenuPress={() => setMenuVisible(true)} /> */}
 
             {error && <Text style={newStyles.errorText}>{error}</Text>}
 
@@ -842,13 +842,13 @@ export default function App() {
             </View>
 
             {/* Bottom Navigation */}
-            <View style={[newStyles.navBarContainer, { zIndex: 2 }]}>
+            <View style={[newStyles.navBarContainer, { zIndex: 1000 }]}>
                 <BottomNavBar activeTab={activeTab} setActiveTab={setActiveTab} />
             </View>
 
             {/* Floating Add Button */}
             {activeTab !== 'dashboard' && activeTab !== 'history' && (
-                <TouchableOpacity style={[newStyles.fab, { zIndex: 2 }]} onPress={openAddStockModal}>
+                <TouchableOpacity style={[newStyles.fab, { zIndex: 1000 }]} onPress={openAddStockModal}>
                     <Text style={newStyles.fabText}>+</Text>
                 </TouchableOpacity>
             )}
@@ -856,7 +856,7 @@ export default function App() {
             {/* Chat Button */}
             {!isChatboxVisible && (
                 <TouchableOpacity
-                    style={[newStyles.chatButton, { zIndex: 2 }]}
+                    style={[newStyles.chatButton, { zIndex: 1000 }]}
                     onPress={() => setIsChatboxVisible(true)}
                     activeOpacity={0.85}
                 >
@@ -866,7 +866,7 @@ export default function App() {
 
             {/* Chatbox */}
             {isChatboxVisible && (
-                <View style={[newStyles.chatboxWrapper, { zIndex: 1 }]}>
+                <View style={[newStyles.chatboxWrapper, { zIndex: 100 }]}>
                     <SchemaRAGChatbox
                         onClose={() => setIsChatboxVisible(false)}
                     />
@@ -954,6 +954,7 @@ const newStyles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         borderTopWidth: 1,
         borderTopColor: '#E0E7F1',
+        //zIndex: 1, // Lower z-index for nav bar
     },
     navItem: {
         flex: 1,
@@ -1257,7 +1258,7 @@ const newStyles = StyleSheet.create({
     // FAB
     fab: {
         position: 'absolute',
-        bottom: 80, // Position above nav bar
+        bottom: 80,
         right: 20,
         width: 60,
         height: 60,
@@ -1270,6 +1271,7 @@ const newStyles = StyleSheet.create({
         shadowOpacity: 0.3,
         shadowRadius: 5,
         elevation: 8,
+        //zIndex: 1, // Lower z-index for FAB
     },
     fabText: {
         color: '#FFFFFF',
@@ -1389,61 +1391,59 @@ const newStyles = StyleSheet.create({
     // Add styles for Portfolio Search/Sort
     portfolioListControls: {
         flexDirection: 'row',
-        paddingHorizontal: 15,
-        paddingVertical: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
         alignItems: 'center',
-        backgroundColor: '#F4F7FC', // Match background
+        backgroundColor: '#F4F7FC',
         borderBottomWidth: 1,
         borderBottomColor: '#E0E7F1',
     },
     portfolioSearchWrapper: {
-        flex: 1, // Take most space
-        position: 'relative', // For clear button
-        marginRight: 10,
+        flex: 1,
+        position: 'relative',
+        marginRight: 8,
     },
     portfolioSearchInput: {
         backgroundColor: '#FFFFFF',
-        borderRadius: 8,
-        paddingHorizontal: 12,
-        paddingVertical: Platform.OS === 'ios' ? 10 : 8, // Adjust padding per platform
-        fontSize: 14,
+        borderRadius: 6,
+        paddingHorizontal: 10,
+        paddingVertical: Platform.OS === 'ios' ? 8 : 6,
+        fontSize: 13,
         borderWidth: 1,
         borderColor: '#E0E7F1',
-        paddingRight: 30, // Space for clear button
+        paddingRight: 28,
     },
-    clearSearchButton: { // Position clear button inside search input
+    clearSearchButton: {
         position: 'absolute',
-        right: 5,
+        right: 4,
         top: 0,
         bottom: 0,
         justifyContent: 'center',
-        paddingHorizontal: 5,
+        paddingHorizontal: 4,
     },
     clearSearchText: {
         color: '#8A94A6',
-        fontSize: 16,
+        fontSize: 14,
     },
     portfolioSortWrapper: {
-        minWidth: 120, // Adjust width as needed
+        minWidth: 110,
         backgroundColor: '#FFFFFF',
-        borderRadius: 8,
+        borderRadius: 6,
         borderWidth: 1,
         borderColor: '#E0E7F1',
-        overflow: 'hidden', // Important for Picker on Android
-        justifyContent: 'center', // Center picker vertically
-        height: Platform.OS === 'ios' ? 38 : 40, // Match input height (adjust for platform)
-        // Remove any shadow or outline
+        overflow: 'hidden',
+        justifyContent: 'center',
+        height: Platform.OS === 'ios' ? 32 : 34,
     },
     portfolioSortPicker: {
-        height: '100%', // Fill wrapper height
+        height: '100%',
         width: '100%',
-        backgroundColor: 'transparent', // Make wrapper bg visible
-        color: '#1A2E4C', // Text color
-        borderWidth: 0, // Remove black outline
+        backgroundColor: 'transparent',
+        color: '#1A2E4C',
+        borderWidth: 0,
         borderColor: 'transparent',
-        borderRadius: 8,
-        // iOS requires wrapper height, Android might need direct height/padding
-        ...(Platform.OS === 'ios' ? {} : { height: 40 }),
+        borderRadius: 6,
+        ...(Platform.OS === 'ios' ? {} : { height: 34 }),
     },
     visibilityButton: {
         padding: 5, // Tappable area
@@ -1454,32 +1454,34 @@ const newStyles = StyleSheet.create({
         color: '#6C7A91', // Match collapse icon color
     },
     timestampContainer: {
-        paddingHorizontal: 15, // Match card margins
+        paddingHorizontal: 12,
         paddingVertical: 0,
         alignItems: 'center',
-        backgroundColor: '#F4F7FC', // Match background
+        backgroundColor: '#F4F7FC',
     },
     timestampText: {
-        fontSize: 11,
-        color: '#8A94A6', // Muted grey color
+        fontSize: 10,
+        color: '#8A94A6',
         fontStyle: 'italic',
     },
     chatButton: {
         position: 'absolute',
-        right: 16,
+        left: 16,
         bottom: 80,
         width: 56,
         height: 56,
         borderRadius: 28,
-        backgroundColor: '#4F46E5', // Use a vibrant color that matches the chatbox header
+        backgroundColor: '#7C3AED', // Modern purple
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 3.84,
-        elevation: 5,
+        shadowColor: '#7C3AED',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8,
         zIndex: 100,
+        borderWidth: 1,
+        borderColor: 'rgba(124, 58, 237, 0.2)', // Subtle border
     },
     chatboxWrapper: {
         position: 'absolute',
@@ -1489,6 +1491,6 @@ const newStyles = StyleSheet.create({
         height: '100%',
         backgroundColor: 'transparent',
         pointerEvents: "box-none",
-        zIndex: 2,
+        zIndex: 2, // Higher z-index for chatbox wrapper
     },
 });

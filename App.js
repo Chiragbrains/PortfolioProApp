@@ -68,7 +68,8 @@ export default function App() {
     const [portfolioSortBy, setPortfolioSortBy] = useState('ticker');
     const [isSummaryCollapsed, setIsSummaryCollapsed] = useState(true);
     const [isValueVisible, setIsValueVisible] = useState(false);
-    const [isChatboxVisible, setIsChatboxVisible] = useState(false);
+    const [isChatboxVisible, setIsChatboxVisible] = useState(false);    const [isChatPanelLow, setIsChatPanelLow] = useState(false); // true if panel is minimized/low
+
 
     const { supabaseClient, clearConfig } = useSupabaseConfig();
 
@@ -835,24 +836,27 @@ export default function App() {
 
             {error && <Text style={newStyles.errorText}>{error}</Text>}
 
-            {/* Render Active Tab Content */}
+            {/* Main Content Area */}
             <View style={newStyles.contentArea}>
                 {renderActiveTabContent()}
             </View>
 
             {/* Bottom Navigation */}
-            <BottomNavBar activeTab={activeTab} setActiveTab={setActiveTab} />
+            <View style={[newStyles.navBarContainer, { zIndex: 2 }]}>
+                <BottomNavBar activeTab={activeTab} setActiveTab={setActiveTab} />
+            </View>
 
-            {/* Floating Add Button (Always visible except maybe on History?) */}
+            {/* Floating Add Button */}
             {activeTab !== 'dashboard' && activeTab !== 'history' && (
-                <TouchableOpacity style={newStyles.fab} onPress={openAddStockModal}>
+                <TouchableOpacity style={[newStyles.fab, { zIndex: 2 }]} onPress={openAddStockModal}>
                     <Text style={newStyles.fabText}>+</Text>
                 </TouchableOpacity>
             )}
-            {/* --- Round AI Chatbox Button (Fixed on left above nav) --- */}
+
+            {/* Chat Button */}
             {!isChatboxVisible && (
                 <TouchableOpacity
-                    style={newStyles.chatButton}
+                    style={[newStyles.chatButton, { zIndex: 2 }]}
                     onPress={() => setIsChatboxVisible(true)}
                     activeOpacity={0.85}
                 >
@@ -860,32 +864,14 @@ export default function App() {
                 </TouchableOpacity>
             )}
 
-            {/* Chatbox Modal */}
-            <Modal
-                animationType="none" // Panel handles its own animation via gestures
-                transparent={true}
-                visible={isChatboxVisible}
-                onRequestClose={() => setIsChatboxVisible(false)}
-            >
-                {/* This GestureHandlerRootView will align the chatbox to the bottom.
-                pointerEvents="box-none" allows touches to pass through its empty areas
-                to the content underneath the Modal. */}
-                <GestureHandlerRootView 
-                    style={{ flex: 1, backgroundColor: 'transparent' }} // Explicit transparent background
-                    pointerEvents="box-none" // Allows touches to pass through empty areas of GHRV
-                >
-                    {/* This View absolutely positions the SchemaRAGChatbox at the bottom.
-                        It does not need explicit pointerEvents, as its child (SchemaRAGChatbox)
-                        will handle its own touches.
-                    */}
-                    <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
-                        <SchemaRAGChatbox
-                            onClose={() => setIsChatboxVisible(false)}
-                        />
-                    </View>
-
-                </GestureHandlerRootView>
-            </Modal>
+            {/* Chatbox */}
+            {isChatboxVisible && (
+                <View style={[newStyles.chatboxWrapper, { zIndex: 1 }]}>
+                    <SchemaRAGChatbox
+                        onClose={() => setIsChatboxVisible(false)}
+                    />
+                </View>
+            )}
 
             {/* Other Modals */}
             <MenuDrawer
@@ -928,7 +914,13 @@ const newStyles = StyleSheet.create({
         backgroundColor: '#F4F7FC', // Light background color
     },
     contentArea: {
-        flex: 1, // Takes up space between header and nav bar
+        flex: 1,
+        backgroundColor: '#F4F7FC',
+        position: 'relative',
+        zIndex: 1,
+    },
+    contentAreaWithChat: {
+        marginBottom: 80, // Space for minimized chat
     },
     // Header
     header: {
@@ -954,13 +946,14 @@ const newStyles = StyleSheet.create({
         fontWeight: '600',
     },
     // Bottom Nav Bar
-    navBar: {
-        flexDirection: 'row',
-        height: 65, // Increased height
+    navBarContainer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: '#FFFFFF',
         borderTopWidth: 1,
         borderTopColor: '#E0E7F1',
-        backgroundColor: '#FFFFFF',
-        paddingBottom: Platform.OS === 'ios' ? 10 : 0, // Padding for home indicator
     },
     navItem: {
         flex: 1,
@@ -1333,18 +1326,27 @@ const newStyles = StyleSheet.create({
     disconnectText: { color: '#DC3545', },
     // Modal Styles (Copied and prefixed)
     modalOverlay: {
-        flex: 1,
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        justifyContent: 'flex-end',
-        alignItems: 'center',
     },
-
-    chatboxModalContainer: {
-        width: '100%',
-        height: '100%',
+    modalContainer: {
+        flex: 1,
+        position: 'relative',
+    },
+    gestureRootView: {
+        flex: 1,
         backgroundColor: 'transparent',
     },
-    modalContainer: { backgroundColor: 'white', borderRadius: 12, padding: 25, width: '90%', maxWidth: 400, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, },
+    chatboxContainer: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+    },
     modalTitle: { fontSize: 19, fontWeight: '600', marginBottom: 18, textAlign: 'center', color: '#1A2E4C', },
     modalMessage: { marginBottom: 30, fontSize: 15, lineHeight: 23, textAlign: 'center', color: '#495057', },
     modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', },
@@ -1478,5 +1480,15 @@ const newStyles = StyleSheet.create({
         shadowRadius: 3.84,
         elevation: 5,
         zIndex: 100,
+    },
+    chatboxWrapper: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: '100%',
+        backgroundColor: 'transparent',
+        pointerEvents: "box-none",
+        zIndex: 2,
     },
 });

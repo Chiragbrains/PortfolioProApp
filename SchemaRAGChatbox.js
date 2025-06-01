@@ -38,7 +38,7 @@ import { GROQ_API_KEY } from '@env';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const PANEL_TOTAL_HEIGHT = SCREEN_HEIGHT * 0.9;
-const MINIMIZED_PANEL_HEIGHT = 80;
+const MINIMIZED_PANEL_HEIGHT = SCREEN_HEIGHT * 0.53;
 
 const SchemaRAGChatbox = ({ onClose }) => {
   // State management
@@ -473,45 +473,45 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
 
   // Render the draggable panel with UI component
   return (
-    // The GestureDetector is now the root.
-
-    // The Animated.View (draggablePanel) is its direct child.
-    // The draggablePanel itself will be positioned at the bottom by App.js's GHRV.
-    <GestureDetector gesture={dragGesture}>
-      <Animated.View
-        style={[
-          componentStyles.draggablePanel, // This style defines width, height, background, etc.
-          {
-            transform: [{ translateY }],
-          },
-        ]}
-        // pointerEvents="auto" (default) allows this panel and its children to be interactive.
-      >
-        <View style={componentStyles.dragHandleContainer}>
-          <View style={componentStyles.dragHandle} />
-        </View>
-        <SchemaRAGChatboxUI
-          messages={messages}
-          inputTextValue={inputText}
-          onInputTextChange={setInputText}
-          onSendMessagePress={handleSend}
-          isLoading={isLoading}
-          onClose={onClose}
-        />
-      </Animated.View>
-    </GestureDetector>
+    <View style={componentStyles.container}>
+      <GestureDetector gesture={dragGesture}>
+        <Animated.View
+          style={[
+            componentStyles.draggablePanel,
+            {
+              transform: [{ translateY }],
+              height: isMinimized ? MINIMIZED_PANEL_HEIGHT : PANEL_TOTAL_HEIGHT,
+            },
+          ]}
+        >
+          <View style={componentStyles.dragHandleContainer}>
+            <View style={componentStyles.dragHandle} />
+          </View>
+          <SchemaRAGChatboxUI
+            messages={messages}
+            inputTextValue={inputText}
+            onInputTextChange={setInputText}
+            onSendMessagePress={handleSend}
+            isLoading={isLoading}
+            onClose={onClose}
+          />
+        </Animated.View>
+      </GestureDetector>
+    </View>
   );
 };
 
 // Styles for the draggable panel
 const componentStyles = StyleSheet.create({
   container: {
-    // This container defines the maximum area the panel can occupy and translate within.
-    // It's positioned at the bottom by its parent in App.js.
     height: PANEL_TOTAL_HEIGHT, 
-    width: '100%', // Ensure it spans the width
+    width: '100%',
     backgroundColor: 'transparent', 
-    pointerEvents: "box-none", // Crucial: Allows touches to pass through transparent areas of this container.
+    pointerEvents: "box-none",
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
   draggablePanel: {
     width: '100%',
@@ -523,9 +523,11 @@ const componentStyles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
-    elevation: 5, // For Android shadow
+    elevation: 5,
     overflow: 'hidden',
-    // pointerEvents="auto" (default) ensures this panel itself is interactive.
+    position: 'absolute',
+    bottom: 0,
+    zIndex: 3,
   },
   dragHandleContainer: {
     paddingVertical: 10,

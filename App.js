@@ -1,19 +1,18 @@
 // App.js - Rewritten UI Structure
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { // Added TouchableWithoutFeedback
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
     Modal, StyleSheet, Text, View, TouchableOpacity, ScrollView, SafeAreaView, Pressable,
-    ActivityIndicator, Alert, Platform, TextInput, Dimensions, FlatList, PanResponder // Added FlatList
+    ActivityIndicator, Alert, Platform, TextInput, Dimensions, FlatList
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
-import { GestureHandlerRootView } from 'react-native-gesture-handler'; // Import GestureHandlerRootView
-import ConnectionErrorModal from './ConnectionErrorModal'; // Assuming this exists
-import Dashboard from './Dashboard'; // Add Dashboard import
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import ConnectionErrorModal from './ConnectionErrorModal';
+import Dashboard from './Dashboard';
 import { TrendingUp, BarChart3, BarChart4, BarChartHorizontal, LineChart, PieChart, Users } from 'lucide-react';
-import { Animated as RNAnimated } from 'react-native';
-import PortfolioSummary from './PortfolioSummary'; // Import PortfolioSummary
+import PortfolioSummary from './PortfolioSummary';
 import Header from './components/Header';
 import SchemaRAGChatbox from './SchemaRAGChatbox';
 
@@ -72,14 +71,6 @@ export default function App() {
     const [isChatboxVisible, setIsChatboxVisible] = useState(false);
 
     const { supabaseClient, clearConfig } = useSupabaseConfig();
-
-    // Chatbox animation constants
-    const chatboxTabWidth = 36;
-    const chatboxPanelWidth = 56;
-    const chatboxPanelHeight = Math.min(480, Dimensions.get('window').height - 120);
-
-    // Animated value for slide
-    const chatboxSlideAnim = useRef(new RNAnimated.Value(0)).current;
 
     // --- Effects ---
     useEffect(() => {
@@ -725,7 +716,8 @@ export default function App() {
                                             setGlobalSearchTerm(item.company_name || item.ticker); // Search by NAME, fallback to ticker
                                         }}
                                     />
-                                )}
+                                )
+                                }
                                 keyExtractor={(item) => item.ticker}
                                 contentContainerStyle={{ paddingBottom: 80 }} // Space for FAB and NavBar
                                 extraData={portfolioSearchTerm + portfolioSortBy}
@@ -860,101 +852,47 @@ export default function App() {
             {/* --- Round AI Chatbox Button (Fixed on left above nav) --- */}
             {!isChatboxVisible && (
                 <TouchableOpacity
-                    style={{
-                        position: 'absolute',
-                        left: 16,
-                        bottom: 88, // above bottom nav
-                        width: 56,
-                        height: 56,
-                        borderRadius: 28,
-                        backgroundColor: '#0066cc',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        zIndex: 100,
-                        shadowColor: '#000',
-                        shadowOffset: { width: 1, height: 2 },
-                        shadowOpacity: 0.18,
-                        shadowRadius: 6,
-                    }}
+                    style={newStyles.chatButton}
                     onPress={() => setIsChatboxVisible(true)}
                     activeOpacity={0.85}
                 >
                     <Text style={{ fontSize: 28, color: 'white' }}>💬</Text>
                 </TouchableOpacity>
             )}
+
             {/* Chatbox Modal */}
             <Modal
-                animationType="slide"
+                animationType="none" // Panel handles its own animation via gestures
                 transparent={true}
                 visible={isChatboxVisible}
-                onRequestClose={() => {
-                    setIsChatboxVisible(false);
-                }}
+                onRequestClose={() => setIsChatboxVisible(false)}
             >
-                <GestureHandlerRootView style={{ flex: 1 }}>
-                    <Pressable 
-                        style={{ flex: 1 }}
-                        onPress={() => setIsChatboxVisible(false)}
-                    >
-                        <View style={[newStyles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
-                            <Pressable onPress={e => e.stopPropagation()}>
-                                <View style={newStyles.chatboxModalContainer}>
-                                    {/* Temporarily disabled GeneralChatbox */}
-                                    {/* <GeneralChatbox onClose={() => setIsChatboxVisible(false)} /> */}
-                                    <SchemaRAGChatbox onClose={() => setIsChatboxVisible(false)} />
-                                </View>
-                            </Pressable>
-                        </View>
-                    </Pressable>
+                {/* This GestureHandlerRootView will align the chatbox to the bottom.
+                pointerEvents="box-none" allows touches to pass through its empty areas
+                to the content underneath the Modal. */}
+                <GestureHandlerRootView 
+                    style={{ flex: 1, backgroundColor: 'transparent' }} // Explicit transparent background
+                    pointerEvents="box-none" // Allows touches to pass through empty areas of GHRV
+                >
+                    {/* This View absolutely positions the SchemaRAGChatbox at the bottom.
+                        It does not need explicit pointerEvents, as its child (SchemaRAGChatbox)
+                        will handle its own touches.
+                    */}
+                    <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+                        <SchemaRAGChatbox
+                            onClose={() => setIsChatboxVisible(false)}
+                        />
+                    </View>
+
                 </GestureHandlerRootView>
             </Modal>
-            {/* --- Chatbox Slide-out Tab (Left side, very thin, handle on right) --- */}
-            <RNAnimated.View
-                style={{
-                    position: 'absolute',
-                    left: chatboxSlideAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-chatboxPanelWidth + chatboxTabWidth, 0],
-                    }),
-                    top: 500, // below header
-                    width: 36, // smaller width
-                    height: 72, // smaller height
-                    opacity: 1,
-                    zIndex: 50,
-                    flexDirection: 'row-reverse',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 2, height: 2 },
-                    shadowOpacity: 0.01,
-                    shadowRadius: 8,
-                    elevation: 8,
-                }}
-            >
-                <TouchableOpacity
-                    style={{
-                        width: 36, // match width for label
-                        height: 72,
-                        backgroundColor: '#0066cc',
-                        opacity: 0.85,
-                        borderTopLeftRadius: 14,
-                        borderBottomLeftRadius: 14,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        flexDirection: 'column',
-                    }}
-                    onPress={() => setIsChatboxVisible(true)}
-                    activeOpacity={0.85}
-                >
-                    <Text style={{ color: 'white', fontSize: 11, fontWeight: 'bold', transform: [{ rotate: '-90deg' }], letterSpacing: 1, width: 60, textAlign: 'center' }}>
-                        CHATBOX
-                    </Text>
-                </TouchableOpacity>
-            </RNAnimated.View>
-            {/* --- Modals & Menu (Keep existing components/logic) --- */}
+
+            {/* Other Modals */}
             <MenuDrawer
                 visible={menuVisible}
                 onClose={() => setMenuVisible(false)}
                 onImportPress={() => {
-                    setMenuVisible(false); // Close menu first
+                    setMenuVisible(false);
                     triggerFileSelect();   // Call the file selection function
                 }}
                 onClearDataPress={() => { setMenuVisible(false); handleClearAllData(); }}
@@ -1397,16 +1335,14 @@ const newStyles = StyleSheet.create({
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        justifyContent: 'center', // Changed from 'flex-end' to 'center'
-        alignItems: 'center', // Added to center horizontally
+        justifyContent: 'flex-end',
+        alignItems: 'center',
     },
 
     chatboxModalContainer: {
-        width: '90%',
-        height: '90%',
+        width: '100%',
+        height: '100%',
         backgroundColor: 'transparent',
-        borderRadius: 18,
-        overflow: 'hidden',
     },
     modalContainer: { backgroundColor: 'white', borderRadius: 12, padding: 25, width: '90%', maxWidth: 400, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, },
     modalTitle: { fontSize: 19, fontWeight: '600', marginBottom: 18, textAlign: 'center', color: '#1A2E4C', },
@@ -1526,25 +1462,21 @@ const newStyles = StyleSheet.create({
         color: '#8A94A6', // Muted grey color
         fontStyle: 'italic',
     },
-    chatToggleButton: {
+    chatButton: {
         position: 'absolute',
-        right: 10,
-        bottom: 25, // Lowered from 80 to 20 to bring the chatbox button closer to the bottom/tab bar
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-        backgroundColor: '#0066cc',
+        right: 16,
+        bottom: 80,
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: '#4F46E5', // Use a vibrant color that matches the chatbox header
         justifyContent: 'center',
         alignItems: 'center',
-        elevation: 5,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.25,
         shadowRadius: 3.84,
-    },
-    chatToggleButtonText: {
-        color: '#FFFFFF',
-        fontSize: 20,
-        fontWeight: 'bold',
+        elevation: 5,
+        zIndex: 100,
     },
 });

@@ -15,21 +15,33 @@ import {
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSupabaseConfig } from './SupabaseConfigContext';
-import { findSimilarSchemaContexts, generateSchemaEmbedding, initializeSchemaEmbeddings } from './services/embeddingService';
+import { 
+  findSimilarSchemaContexts, 
+  generateSchemaEmbedding, 
+  initializeSchemaEmbeddings 
+} from './services/embeddingService';
+
 // --- Langchain Imports ---
 import { ChatGroq } from "@langchain/groq";
 import { PromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser, JsonOutputParser } from "@langchain/core/output_parsers";
-import { RunnableSequence, RunnablePassthrough, RunnableLambda } from "@langchain/core/runnables";
-// --- End Langchain Imports ---
-// Removed import of styles from GeneralChatbox, will define locally
+import { 
+  RunnableSequence, 
+  RunnablePassthrough, 
+  RunnableLambda 
+} from "@langchain/core/runnables";
+
+// Import the JSX UI component
+import { SchemaRAGChatbox as SchemaRAGChatboxUI } from './SchemaRAGChatbox.jsx';
+
 import { GROQ_API_KEY } from '@env';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const PANEL_TOTAL_HEIGHT = SCREEN_HEIGHT * 0.9; // Full height of the draggable panel when expanded
-const MINIMIZED_PANEL_HEIGHT = 80; // Height of the panel when minimized at the bottom
+const PANEL_TOTAL_HEIGHT = SCREEN_HEIGHT * 0.9;
+const MINIMIZED_PANEL_HEIGHT = 80;
 
 const SchemaRAGChatbox = ({ onClose }) => {
+  // State management
   const [messages, setMessages] = useState([
     { 
       id: `welcome-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -40,77 +52,69 @@ const SchemaRAGChatbox = ({ onClose }) => {
   ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const scrollViewRef = useRef();
   const { supabaseClient } = useSupabaseConfig();
   
   // Animation state
-  const [isMinimized, setIsMinimized] = useState(false); // Starts expanded (not minimized)
-  const translateY = useRef(new Animated.Value(0)).current; // 0 for expanded (top of its container)
+  const [isMinimized, setIsMinimized] = useState(false);
+  const translateY = useRef(new Animated.Value(0)).current;
   const dragStartTranslateY = useRef(0);
 
-const dragGesture = Gesture.Pan()
-  .onStart(() => {
-    dragStartTranslateY.current = translateY._value;
-  })
-  .onUpdate((event) => {
-    let newY = dragStartTranslateY.current + event.translationY;
-    // Clamp newY: 0 (fully expanded) to PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT (fully minimized)
-    newY = Math.max(0, newY); // Cannot drag above its top
-    newY = Math.min(newY, PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT); // Max downward drag
-    translateY.setValue(newY);
-  })
-  .onEnd((event) => {
-    const targetExpandedY = 0;
-    const targetMinimizedY = PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT;
-    
-    if (!isMinimized) { // If currently expanded (at the top of its container)
-      // Check if dragged down enough to minimize
-      if (event.translationY > (PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT) / 2 || event.velocityY > 500) {
-        Animated.spring(translateY, {
-          toValue: targetMinimizedY,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 10,
-        }).start();
-        setIsMinimized(true);
-      } else { // Snap back to expanded (top)
-        Animated.spring(translateY, {
-          toValue: targetExpandedY,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 10,
-        }).start();
+  // Gesture handler for dragging
+  const dragGesture = Gesture.Pan()    
+    .onStart(() => {
+      dragStartTranslateY.current = translateY._value;
+    })
+    .onUpdate((event) => {
+      let newY = dragStartTranslateY.current + event.translationY;
+      newY = Math.max(0, newY);
+      newY = Math.min(newY, PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT);
+      translateY.setValue(newY);
+    })
+    .onEnd((event) => {
+      const targetExpandedY = 0;
+      const targetMinimizedY = PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT;
+      
+      if (!isMinimized) {
+        if (event.translationY > (PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT) / 2 || event.velocityY > 500) {
+          Animated.spring(translateY, {
+            toValue: targetMinimizedY,
+            useNativeDriver: true,
+            tension: 100,
+            friction: 10,
+          }).start();
+          setIsMinimized(true);
+        } else {
+          Animated.spring(translateY, {
+            toValue: targetExpandedY,
+            useNativeDriver: true,
+            tension: 100,
+            friction: 10,
+          }).start();
+        }
+      } else {
+        if (event.translationY < -(PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT) / 3 || event.velocityY < -500) {
+          Animated.spring(translateY, {
+            toValue: targetExpandedY,
+            useNativeDriver: true,
+            tension: 100,
+            friction: 10,
+          }).start();
+          setIsMinimized(false);
+        } else {
+          Animated.spring(translateY, {
+            toValue: targetMinimizedY,
+            useNativeDriver: true,
+            tension: 100,
+            friction: 8,
+          }).start();
+        }
       }
-    } else { // If currently minimized (at the bottom)
-      // Check if dragged up enough to expand
-      if (event.translationY < -(PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT) / 3 || event.velocityY < -500) {
-        Animated.spring(translateY, {
-          toValue: targetExpandedY,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 10,
-        }).start();
-        setIsMinimized(false);
-      } else { // Snap back to minimized (bottom)
-        Animated.spring(translateY, {
-          toValue: targetMinimizedY,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 8,
-        }).start();
-      }
-    }
-  }); // Fixed: Added semicolon and proper closing
+    });
 
-useEffect(() => {
-  scrollViewRef.current?.scrollToEnd({ animated: true });
-}, [messages]);
-
-  // Add initialization check
+  // Initialize schema embeddings if needed
   useEffect(() => {
     const initializeIfNeeded = async () => {
       try {
-        // Check if we have any schema contexts
         const { data, error } = await supabaseClient
           .from('portfolio_context_embeddings')
           .select('id')
@@ -118,7 +122,6 @@ useEffect(() => {
 
         if (error) throw error;
 
-        // If no data exists, initialize schema contexts
         if (!data || data.length === 0) {
           console.log('No schema contexts found. Initializing...');
           setIsLoading(true);
@@ -136,10 +139,10 @@ useEffect(() => {
     }
   }, [supabaseClient]);
 
-  // --- Langchain LLM Instances ---
+  // LLM instances
   const llmEntityExtraction = new ChatGroq({
     apiKey: GROQ_API_KEY,
-    model: "meta-llama/llama-4-scout-17b-16e-instruct",  // Updated to use correct model property
+    model: "meta-llama/llama-4-scout-17b-16e-instruct",
     temperature: 0.1,
   });
 
@@ -148,9 +151,11 @@ useEffect(() => {
     model: "meta-llama/llama-4-scout-17b-16e-instruct",
     temperature: 0.1,
   });
-  // --- End Langchain LLM Instances ---
+
+  // Extract and resolve ticker from user query
   const extractAndResolveTickerFromQuery = async (userQuery) => {
     console.log('[SchemaRAGChatbox] extractAndResolveTickerFromQuery: START for query -', userQuery);
+    
     const systemPrompt = `You are an AI assistant specialized in financial queries.
 Your task is to analyze the user's question and identify if it refers to a specific company by its name or ticker symbol.
 If a company name is found (e.g., "Apple", "Microsoft Corp"), try to map it to its common stock ticker (e.g., "AAPL", "MSFT").
@@ -172,30 +177,24 @@ User: "Market value of International Business Machines" -> {"type": "ticker_iden
 User: "What are my top holdings?" -> {"type": "general_query"}
 User: "Performance of XYZ Corp" (if XYZ Corp is not a known major company) -> {"type": "company_name_unresolved", "name": "XYZ Corp", "original_mention": "XYZ Corp"}`;
 
-    const promptTemplate = PromptTemplate.fromTemplate(systemPrompt + "\n\nUser: {query}\nAI:");
-    
-    const chain = promptTemplate.pipe(llmEntityExtraction).pipe(new JsonOutputParser());
-
     try {
-      // Forcing JSON output with Groq can sometimes be tricky if the model doesn't strictly adhere.
-      // Llama3 is generally good with JSON if prompted correctly.
-      // The `JsonOutputParser` will attempt to parse the string output.
-      // We might need to add a retry or a more robust JSON extraction if the model sometimes fails to output perfect JSON.
       const llmResponse = await llmEntityExtraction.invoke([
         { type: "system", content: systemPrompt },
         { type: "human", content: userQuery },
       ]);
-      // Assuming the response content is a JSON string
+      
       const parsedContent = JSON.parse(llmResponse.content);
       console.log('[SchemaRAGChatbox] extractAndResolveTickerFromQuery: Parsed entity info -', parsedContent);
       return parsedContent;
 
     } catch (error) {
       console.error('[SchemaRAGChatbox] Error in extractAndResolveTickerFromQuery:', error);
-      return { type: "general_query", error: error.message }; // Fallback
+      return { type: "general_query", error: error.message };
     }
   };
-  const generateSQLFromContext = async (userQuery, schemaContexts, entityInfo) => { // Added entityInfo
+
+  // Generate SQL from context and entity info
+  const generateSQLFromContext = async (userQuery, schemaContexts, entityInfo) => {
     try {
       const contextText = schemaContexts
         .map(ctx => `${ctx.source_type.toUpperCase()}: ${ctx.content}`)
@@ -209,6 +208,7 @@ User: "Performance of XYZ Corp" (if XYZ Corp is not a known major company) -> {"
       }
 
       const systemPromptContent = `You are a PostgreSQL expert. Generate precise SQL SELECT queries based on schema and natural language questions. Always use ILIKE for case-insensitive text matching in WHERE clauses. Return only the SQL query without any explanations.`;
+      
       const userPromptContent = `Given the following database schema information:
 ${contextText}
 
@@ -304,21 +304,24 @@ Your SQL query:`;
         { type: "system", content: systemPromptContent },
         { type: "human", content: userPromptContent }
       ]);
+      
       let sql = llmResponse.content.trim();
-
       console.log('Raw SQL from LLM (before cleaning):', sql);
 
+      // Clean markdown formatting if present
       const markdownMatch = sql.match(/^```(?:sql)?\s*([\s\S]*?)\s*```$/);
       if (markdownMatch && markdownMatch[1]) {
         sql = markdownMatch[1].trim();
       }
+      
       console.log('Extracted SQL before validation:', sql);
 
-      // Basic validation that we got a SELECT query or a CTE
+      // Basic validation
       const lowerSql = sql.toLowerCase();
       if (!lowerSql.startsWith('select') && !lowerSql.startsWith('with')) {
         throw new Error(`Generated SQL must start with SELECT or WITH. Got: ${sql}`);
       }
+      
       return sql;
     } catch (error) {
       console.error('Error generating SQL:', error);
@@ -326,14 +329,15 @@ Your SQL query:`;
     }
   };
 
+  // Format query results into natural language
   const formatQueryResults = async (userQuery, sqlQuery, results) => {
     try {
       console.log('Formatting results:', { userQuery, results });
       
-      // Limit the results to prevent content too large error
       const limitedResults = Array.isArray(results) ? results.slice(0, 10) : results;
       
       const systemContent = "You are a financial analyst assistant. Provide clear, natural language explanations of portfolio data. Be concise and thorough.";
+      
       const userContent = `Given the user question "${userQuery}" and these database results (showing up to 10 entries):
 ${JSON.stringify(limitedResults, null, 2)}
 ${results.length > 10 ? `\n(Showing 10 out of ${results.length} total results)\n` : ''}
@@ -351,7 +355,7 @@ Example account list format: "You have AMD in multiple accounts: Robinhood, Schw
 Example single result: "You have AMD in your Robinhood account."
 For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and in Reena's Vanguard account."`;
 
-      const llmResponse = await llmSqlGeneration.invoke([ // Can use the same SQL model or a different one for formatting
+      const llmResponse = await llmSqlGeneration.invoke([
         { type: "system", content: systemContent },
         { type: "human", content: userContent }
       ]);
@@ -364,13 +368,16 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
     }
   };
 
-  // --- Langchain Runnable for Supabase SQL Execution ---
+  // Execute Supabase query
   const executeSupabaseQuery = async (sqlQuery) => {
-    const { data, error } = await supabaseClient.rpc('execute_portfolio_query', { query_text: sqlQuery });
+    const { data, error } = await supabaseClient.rpc('execute_portfolio_query', { 
+      query_text: sqlQuery 
+    });
     if (error) throw error;
     return data;
   };
 
+  // Handle message sending with RAG pipeline
   const handleSend = async () => {
     if (!inputText.trim() || isLoading) return;
 
@@ -388,16 +395,20 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
     setMessages(prev => [...prev, userMessage]);
 
     try {
+      // Create the RAG processing chain
       const mainChain = RunnableSequence.from([
-        // Input: { query: "user query" }
-        RunnablePassthrough.assign({ // Keep original query and add entityInfo and contexts
-          entityInfo: new RunnableLambda({ func: async (input) => extractAndResolveTickerFromQuery(input.query) })
-            .withConfig({ runName: "EntityExtraction" }),
-          similarContexts: new RunnableLambda({ func: async (input) => findSimilarSchemaContexts(supabaseClient, input.query) })
-            .withConfig({ runName: "SchemaContextRetrieval" }),
+        // Step 1: Extract entity info and find similar contexts
+        RunnablePassthrough.assign({
+          entityInfo: new RunnableLambda({ 
+            func: async (input) => extractAndResolveTickerFromQuery(input.query) 
+          }).withConfig({ runName: "EntityExtraction" }),
+          similarContexts: new RunnableLambda({ 
+            func: async (input) => findSimilarSchemaContexts(supabaseClient, input.query) 
+          }).withConfig({ runName: "SchemaContextRetrieval" }),
         }),
-        // Output: { query, entityInfo, similarContexts }
-        new RunnableLambda({ // Check for contexts
+        
+        // Step 2: Validate contexts exist
+        new RunnableLambda({
           func: async (input) => {
             if (!input.similarContexts || input.similarContexts.length === 0) {
               throw new Error('No relevant schema context found for the query');
@@ -405,12 +416,16 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
             return input;
           }
         }).withConfig({ runName: "ContextValidation" }),
+        
+        // Step 3: Generate SQL
         RunnablePassthrough.assign({
-          generatedSql: new RunnableLambda({ func: async (input) => generateSQLFromContext(input.query, input.similarContexts, input.entityInfo) })
-            .withConfig({ runName: "SQLGeneration" }),
+          generatedSql: new RunnableLambda({ 
+            func: async (input) => generateSQLFromContext(input.query, input.similarContexts, input.entityInfo) 
+          }).withConfig({ runName: "SQLGeneration" }),
         }),
-        // Output: { query, entityInfo, similarContexts, generatedSql }
-        new RunnableLambda({ // Clean and wrap SQL for RPC
+        
+        // Step 4: Format SQL for RPC execution
+        new RunnableLambda({
           func: (input) => {
             let baseSql = input.generatedSql.replace(/;$/, '');
             const finalSqlForRpc = `SELECT row_to_json(t.*) FROM (${baseSql}) t`;
@@ -418,24 +433,23 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
             return { ...input, baseSql, finalSqlForRpc };
           }
         }).withConfig({ runName: "SQLFormattingForRPC" }),
+        
+        // Step 5: Execute query
         RunnablePassthrough.assign({
-          queryResults: new RunnableLambda({ func: async (input) => executeSupabaseQuery(input.finalSqlForRpc) })
-            .withConfig({ runName: "SQLExecution" }),
+          queryResults: new RunnableLambda({ 
+            func: async (input) => executeSupabaseQuery(input.finalSqlForRpc) 
+          }).withConfig({ runName: "SQLExecution" }),
         }),
-        // Output: { query, ..., baseSql, finalSqlForRpc, queryResults }
-        new RunnableLambda({ func: async (input) => formatQueryResults(input.query, input.baseSql, input.queryResults) })
-          .withConfig({ runName: "NaturalLanguageFormatting" }),
-        // Output: formattedResponse (string)
+        
+        // Step 6: Format results into natural language
+        new RunnableLambda({ 
+          func: async (input) => formatQueryResults(input.query, input.baseSql, input.queryResults) 
+        }).withConfig({ runName: "NaturalLanguageFormatting" }),
       ]);
 
       const chainInput = { query };
       const formattedResponse = await mainChain.invoke(chainInput);
 
-      // To get intermediate results for metadata, we'd typically run parts of the chain
-      // or structure the chain to pass through all data.
-      // For simplicity here, we'll re-fetch entityInfo and contexts if needed for metadata,
-      // or ideally, the chain would be structured to return a final object.
-      // Let's assume the chain is modified to pass through necessary data for metadata.
       const assistantMessage = {
         id: `assistant-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         role: 'assistant',
@@ -443,6 +457,7 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
         mode: 'rag'
       };
       setMessages(prev => [...prev, assistantMessage]);
+      
     } catch (error) {
       console.error('Error in message handling:', error);
       setMessages(prev => [...prev, {
@@ -456,246 +471,73 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
     }
   };
 
-  // Define styles locally for this component
-  const componentStyles = StyleSheet.create({
-    container: {
-      flex: 1,
-      // This container will be positioned by App.js
-      // It should be transparent to allow the main app to be visible
-      // when the chat panel is not covering the full area.
-      backgroundColor: 'transparent', 
-    },
-    draggablePanel: {
-      // This is the visible chat panel
-      width: '100%',
-      height: PANEL_TOTAL_HEIGHT, // The full height it can occupy
-      backgroundColor: '#1c1c1e',
-      // Rounded corners at the bottom, as it slides down from the top of its container
-      borderBottomLeftRadius: 20,
-      borderBottomRightRadius: 20,
-      shadowColor: "#000",
-      shadowOffset: {
-        width: 0,
-        height: 2, // Shadow below the panel
-      },
-      shadowOpacity: 0.25,
-      shadowRadius: 3.84,
-      elevation: 5,
-      // No longer absolutely positioned within its direct parent (componentStyles.container).
-      // It will flow normally within componentStyles.container, which is flex: 1.
-      // Its positioning is now primarily dictated by the View wrapping SchemaRAGChatbox in App.js.
-      overflow: 'hidden', // Clip content like messages when minimized
-    },
-    dragHandleContainer: {
-      paddingVertical: 10,
-      alignItems: 'center',
-    },
-    dragHandle: {
-      width: 40,
-      height: 4,
-      backgroundColor: '#666',
-      borderRadius: 2,
-    },
-    messagesWrapper: {
-      flex: 1,
-      flexDirection: 'column',
-    },
-    messagesContainer: {
-      flex: 1,
-    },
-    messagesContentContainer: {
-      paddingHorizontal: 16,
-      paddingBottom: 16,
-      paddingTop: 8,  // Add padding at the top
-      flexGrow: 1,
-      justifyContent: 'flex-start', // Change to flex-start to start from top
-    },
-    inputContainer: {
-      padding: 16,
-      borderTopWidth: 1,
-      borderTopColor: '#2c2c2e',
-      backgroundColor: '#1c1c1e',
-      marginTop: 'auto',
-      flexDirection: 'row',
-      alignItems: 'center',
-      minHeight: 300, // Ensure the input area has a minimum height
-
-    },
-    input: {
-      flex: 1,
-      backgroundColor: '#2c2c2e',
-      borderRadius: 20,
-      padding: 12,
-      color: '#fff',
-      fontSize: 16,
-      maxHeight: 120,
-      marginRight: 12,
-    },
-    sendButton: {
-      backgroundColor: '#4F46E5',
-      borderRadius: 20,
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    sendButtonDisabled: {
-      opacity: 0.5,
-    },
-    sendButtonText: {
-      color: '#fff',
-      fontSize: 16,
-      fontWeight: '600',
-    },
-    topBar: {
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-    },
-    topBarContent: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    },
-    topBarTitle: {
-      color: '#fff',
-      fontSize: 18,
-      fontWeight: 'bold',
-    },
-    closeButton: {
-      padding: 8,
-    },
-    closeButtonText: {
-      color: '#fff',
-      fontSize: 24,
-      fontWeight: '300',
-    },
-    messageBubble: {
-      maxWidth: '80%',
-      padding: 12,
-      borderRadius: 16,
-      marginVertical: 4,
-    },
-    userMessage: {
-      alignSelf: 'flex-end',
-      backgroundColor: '#4F46E5',
-      borderTopRightRadius: 4,
-    },
-    ragBotMessage: {
-      alignSelf: 'flex-start',
-      backgroundColor: '#2c2c2e',
-      borderTopLeftRadius: 4,
-    },
-    userMessageText: {
-      color: '#fff',
-    },
-    botMessageText: {
-      color: '#fff',
-    },
-    loadingContainer: {
-      padding: 20,
-      alignItems: 'center',
-    },
-    modeIndicator: {
-      marginTop: 4,
-      backgroundColor: 'rgba(79, 70, 229, 0.2)',
-      borderRadius: 4,
-      alignSelf: 'flex-start',
-    },
-    modeIndicatorText: {
-      color: '#4F46E5',
-      fontWeight: '600',
-    },
-  });
-
-  const MessageBubble = ({ message }) => ( // Using componentStyles for specificity
-    <View style={[
-      componentStyles.messageBubble,
-      message.role === 'user' ? componentStyles.userMessage : componentStyles.ragBotMessage
-    ]}>
-      <Text
-        style={message.role === 'user' ? componentStyles.userMessageText : componentStyles.botMessageText}
-        selectable={true}
-      >
-        {message.content}
-      </Text>
-      {message.mode === 'rag' && message.role === 'assistant' && (
-        <View style={[componentStyles.modeIndicator, { padding: 2 }]}>
-          <Text style={[componentStyles.modeIndicatorText, { fontSize: 6 }]}>SCHEMA-RAG</Text>
-        </View>
-      )}
-    </View>
-  );
-
-  // Modified return statement for the draggable bottom bar
+  // Render the draggable panel with UI component
   return (
-    <View style={componentStyles.container}>
-      <GestureDetector gesture={dragGesture}>
-        <Animated.View
-          style={[
-            componentStyles.draggablePanel,
-            {
-              transform: [{ translateY }],
-              // Height is fixed by PANEL_TOTAL_HEIGHT in styles
-            },
-          ]}
-        >
-          <View style={componentStyles.dragHandleContainer}>
-            <View style={componentStyles.dragHandle} />
-          </View>
-          
-          <View style={componentStyles.topBar}>
-            <View style={componentStyles.topBarContent}>
-              <Text style={componentStyles.topBarTitle}>Portfolio Assistant</Text>
-              <TouchableOpacity style={componentStyles.closeButton} onPress={onClose}>
-                <Text style={componentStyles.closeButtonText}>×</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+    // The GestureDetector is now the root.
 
-          <View style={componentStyles.messagesWrapper}>
-            <ScrollView
-              ref={scrollViewRef}
-              style={componentStyles.messagesContainer}
-              contentContainerStyle={componentStyles.messagesContentContainer}
-            >
-              {messages.map(message => (
-                <MessageBubble key={message.id} message={message} />
-              ))}
-              {isLoading && (
-                <View style={componentStyles.loadingContainer}>
-                  <ActivityIndicator size="small" color="#4F46E5" />
-                </View>
-              )}
-            </ScrollView>
-          </View>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            // Adjusted keyboardVerticalOffset. This might need further tuning based on your exact App.js layout.
-            // A common value for iOS if there's a bottom tab bar is that tab bar's height.
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0} 
-            style={componentStyles.inputContainer}
-          >
-            <TextInput
-              style={componentStyles.input}
-              value={inputText}
-              onChangeText={setInputText}
-              placeholder="Ask about your portfolio..."
-              placeholderTextColor="#666"
-              multiline
-              maxHeight={120}
-            />
-            <TouchableOpacity
-              style={[componentStyles.sendButton, (!inputText.trim() || isLoading) && componentStyles.sendButtonDisabled]}
-              onPress={handleSend}
-              disabled={!inputText.trim() || isLoading}
-            >
-              <Text style={componentStyles.sendButtonText}>Send</Text>
-            </TouchableOpacity>
-          </KeyboardAvoidingView>
-        </Animated.View>
-      </GestureDetector>
-    </View>
+    // The Animated.View (draggablePanel) is its direct child.
+    // The draggablePanel itself will be positioned at the bottom by App.js's GHRV.
+    <GestureDetector gesture={dragGesture}>
+      <Animated.View
+        style={[
+          componentStyles.draggablePanel, // This style defines width, height, background, etc.
+          {
+            transform: [{ translateY }],
+          },
+        ]}
+        // pointerEvents="auto" (default) allows this panel and its children to be interactive.
+      >
+        <View style={componentStyles.dragHandleContainer}>
+          <View style={componentStyles.dragHandle} />
+        </View>
+        <SchemaRAGChatboxUI
+          messages={messages}
+          inputTextValue={inputText}
+          onInputTextChange={setInputText}
+          onSendMessagePress={handleSend}
+          isLoading={isLoading}
+          onClose={onClose}
+        />
+      </Animated.View>
+    </GestureDetector>
   );
 };
+
+// Styles for the draggable panel
+const componentStyles = StyleSheet.create({
+  container: {
+    // This container defines the maximum area the panel can occupy and translate within.
+    // It's positioned at the bottom by its parent in App.js.
+    height: PANEL_TOTAL_HEIGHT, 
+    width: '100%', // Ensure it spans the width
+    backgroundColor: 'transparent', 
+    pointerEvents: "box-none", // Crucial: Allows touches to pass through transparent areas of this container.
+  },
+  draggablePanel: {
+    width: '100%',
+    height: PANEL_TOTAL_HEIGHT, 
+    backgroundColor: '#1c1c1e',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5, // For Android shadow
+    overflow: 'hidden',
+    // pointerEvents="auto" (default) ensures this panel itself is interactive.
+  },
+  dragHandleContainer: {
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: '#1A2E4C',
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#666',
+    borderRadius: 2,
+  },
+});
 
 export default SchemaRAGChatbox;

@@ -41,7 +41,7 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 const PANEL_TOTAL_HEIGHT = SCREEN_HEIGHT * 1;
 const MINIMIZED_PANEL_HEIGHT = SCREEN_HEIGHT * 0.57; // Reduced height to ensure input field is visible
 
-const SchemaRAGChatbox = ({ onClose }) => {
+const SchemaRAGChatbox = ({ onClose, onMinimizeChange }) => { // Added onMinimizeChange prop
   // State management
   const [messages, setMessages] = useState([
     { 
@@ -74,6 +74,7 @@ const SchemaRAGChatbox = ({ onClose }) => {
     .onEnd((event) => {
       const targetExpandedY = 0;
       const targetMinimizedY = PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT;
+      let newIsMinimizedState = isMinimized;
       
       if (!isMinimized) {
         if (event.translationY > (PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT) / 2 || event.velocityY > 500) {
@@ -83,7 +84,7 @@ const SchemaRAGChatbox = ({ onClose }) => {
             tension: 100,
             friction: 10,
           }).start();
-          setIsMinimized(true);
+          newIsMinimizedState = true;
         } else {
           Animated.spring(translateY, {
             toValue: targetExpandedY,
@@ -91,6 +92,7 @@ const SchemaRAGChatbox = ({ onClose }) => {
             tension: 100,
             friction: 10,
           }).start();
+          // newIsMinimizedState remains false
         }
       } else {
         if (event.translationY < -(PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT) / 3 || event.velocityY < -500) {
@@ -100,7 +102,7 @@ const SchemaRAGChatbox = ({ onClose }) => {
             tension: 100,
             friction: 10,
           }).start();
-          setIsMinimized(false);
+          newIsMinimizedState = false;
         } else {
           Animated.spring(translateY, {
             toValue: targetMinimizedY,
@@ -108,8 +110,15 @@ const SchemaRAGChatbox = ({ onClose }) => {
             tension: 100,
             friction: 8,
           }).start();
+          // newIsMinimizedState remains true
         }
       }
+
+      if (isMinimized !== newIsMinimizedState) {
+        setIsMinimized(newIsMinimizedState);
+        onMinimizeChange?.(newIsMinimizedState); // Call the callback if it exists
+      }
+
     });
 
   // Initialize schema embeddings if needed

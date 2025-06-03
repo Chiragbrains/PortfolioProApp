@@ -69,7 +69,8 @@ export default function App() {
     const [isSummaryCollapsed, setIsSummaryCollapsed] = useState(true);
     const [isValueVisible, setIsValueVisible] = useState(false);
     const [isChatboxVisible, setIsChatboxVisible] = useState(false);    const [isChatPanelLow, setIsChatPanelLow] = useState(false); // true if panel is minimized/low
-
+    const [isChatboxMinimized, setIsChatboxMinimized] = useState(false); // New state for chatbox minimized status
+    
 
     const { supabaseClient, clearConfig } = useSupabaseConfig();
 
@@ -829,6 +830,10 @@ export default function App() {
         // Note: setIsLoading(false) is handled within handleFileSelect on success/error there
       };
     
+    const handleChatboxMinimizeChange = (minimized) => {
+        setIsChatboxMinimized(minimized);
+    };
+
     // --- Main Render ---
     return (
         <SafeAreaView style={newStyles.safeArea}>
@@ -847,7 +852,7 @@ export default function App() {
             </View>
 
             {/* Floating Add Button */}
-            {activeTab !== 'dashboard' && activeTab !== 'history' && (
+            {activeTab !== 'dashboard' && activeTab !== 'history' && (!isChatboxVisible || isChatboxMinimized) && (
                 <TouchableOpacity style={[newStyles.fab, { zIndex: 1000 }]} onPress={openAddStockModal}>
                     <Text style={newStyles.fabText}>+</Text>
                 </TouchableOpacity>
@@ -868,7 +873,11 @@ export default function App() {
             {isChatboxVisible && (
                 <View style={[newStyles.chatboxWrapper, { zIndex: 100 }]}>
                     <SchemaRAGChatbox
-                        onClose={() => setIsChatboxVisible(false)}
+                        onClose={() => {
+                            setIsChatboxVisible(false);
+                            setIsChatboxMinimized(false); // Reset minimized state when chatbox is closed
+                        }}
+                        onMinimizeChange={handleChatboxMinimizeChange} // Pass the callback
                     />
                 </View>
             )}

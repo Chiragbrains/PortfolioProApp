@@ -1,18 +1,19 @@
 // services/alphaVantageLLMService.js
 import axios from 'axios';
-import { createClient } from '@supabase/supabase-js';
+// Removed: import { createClient } from '@supabase/supabase-js'; // Client will be passed in
 import { ChatGroq } from '@langchain/groq';
 import { JsonOutputParser } from '@langchain/core/output_parsers';
+
 import {
   RunnableSequence,
   RunnableLambda,
-  RunnablePassthrough,
+  // RunnablePassthrough, // Not explicitly used, can be removed if not needed elsewhere
 } from '@langchain/core/runnables';
-import { ALPHA_VANTAGE_API_KEY, GROQ_API_KEY, SUPABASE_URL, SUPABASE_ANON_KEY } from '@env';
+import { ALPHA_VANTAGE_API_KEY, GROQ_API_KEY } from '@env'; // Removed SUPABASE_URL, SUPABASE_ANON_KEY
 import { generateEmbedding } from './embeddingService.js'; // Assuming this uses HF e5-large-v2
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const chatModel = new ChatGroq({ apiKey: GROQ_API_KEY, model: 'llama3-70b-8192' }); // Standardized model
+// const { supabaseClient } = useSupabaseConfig(); // This line is incorrect and should be removed as hooks cannot be called at the top level of a module.
 
 /**
  * Uses LLM to extract the ticker symbol if not found by regex.
@@ -136,12 +137,18 @@ JSON Response:`;
 /**
  * Constructs the Alpha Vantage URL and required parameters.
  */
-async function constructAlphaVantageUrlAndParams({ userQuery }) {
+async function constructAlphaVantageUrlAndParams({ userQuery, supabaseClient }) { // Added supabaseClient
   // REMOVE: let ticker = userQuery.match(/\b[A-Z]{1,5}\b/)?.[0] || null;
   // ALWAYS use LLM for ticker resolution for better contextual understanding
   console.log('[constructAlphaVantageUrlAndParams] Using LLM to resolve ticker...');
   const ticker = await resolveTickerLLM(userQuery);
   console.log('[Ticker Resolved by LLM]', ticker);
+
+  // Guard clause for supabaseClient
+  if (!supabaseClient) {
+    console.error('[constructAlphaVantageUrlAndParams] Supabase client is not provided.');
+    throw new Error('Supabase client is required but was not provided.');
+  }
 
   const queryEmbeddingResult = await generateEmbedding(userQuery);
   const embeddedQuery = Array.isArray(queryEmbeddingResult) && Array.isArray(queryEmbeddingResult[0])
@@ -157,15 +164,15 @@ async function constructAlphaVantageUrlAndParams({ userQuery }) {
   // Assumes 'match_api_documentation' RPC exists and queries a table
   // populated from alpha_vantage_full.json, returning function_code, description,
   // required_parameters, optional_parameters.
-  // Updated to use 'match_api_documentation' RPC
-  const { data: matchData, error: matchError } = await supabase.rpc('match_api_documentation', {
+  // Use the passed-in supabaseClient
+  const { data: matchData, error: matchError } = await supabaseClient.rpc('match_api_documentation', {
     query_embedding: embeddedQuery,
     match_threshold: 0.7, // Default threshold, adjust as needed
     match_count: 1, // Get the best match
   });
 
   if (matchError) {
-    console.error('Supabase RPC error in match_api_documentation:', matchError);
+    console.error('Supabase RPC error in match_api_documentation (using passed client):', matchError);
     throw matchError;
   }
   if (!matchData || matchData.length === 0) {
@@ -318,13 +325,21 @@ export const getAlphaVantageResponse = RunnableSequence.from([
 /**
  * Convenience wrapper to use the pipeline as a standard async function
  */
-export async function runAlphaVantagePipeline(userQuery) {
+export async function runAlphaVantagePipeline(userQuery, supabaseClient) { // Added supabaseClient parameter
   if (!userQuery || userQuery.trim() === "") {
     return "Please provide a query.";
   }
+  // Add guard clause for supabaseClient
+  if (!supabaseClient) {
+    console.error("[AlphaVantageLLMService] Supabase client not provided to runAlphaVantagePipeline.");
+    // Return an error message that can be displayed to the user
+    return "Error: Database connection is not configured. Please set up your Supabase connection.";
+  }
+
   console.log(`[AlphaVantageLLMService] Processing query: "${userQuery}"`);
   try {
-    const result = await getAlphaVantageResponse.invoke({ userQuery });
+    // Pass supabaseClient in the initial invoke object
+    const result = await getAlphaVantageResponse.invoke({ userQuery, supabaseClient });
     return result;
   } catch (error) {
     console.error(`[AlphaVantageLLMService] Error in main pipeline for query "${userQuery}":`, error);

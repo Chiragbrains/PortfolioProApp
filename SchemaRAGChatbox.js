@@ -504,11 +504,11 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
       } else if (queryDetails.dataSource === "alpha_vantage") {
         console.log('[SchemaRAGChatbox] Query identified for Alpha Vantage. Calling Alpha Vantage service...');
         // Use the original user query for Alpha Vantage service
-        formattedResponse = await runAlphaVantagePipeline(query);
+        formattedResponse = await runAlphaVantagePipeline(query, supabaseClient); // Pass the client;
       } else {
         // This 'else' case should ideally not be reached if the LLM always returns one of the two.
         console.warn(`[SchemaRAGChatbox] Unexpected dataSource: ${queryDetails.dataSource}. Defaulting to Alpha Vantage.`);
-        formattedResponse = await runAlphaVantagePipeline(query);
+        formattedResponse = await runAlphaVantagePipeline(query, supabaseClient); // Pass the client
       }
 
       const assistantMessage = {

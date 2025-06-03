@@ -33,6 +33,7 @@ import {
 
 // Import the JSX UI component
 import { SchemaRAGChatbox as SchemaRAGChatboxUI } from './SchemaRAGChatbox.jsx';
+import { getDynamicAlphaVantageResponse, runAlphaVantagePipeline } from './services/alphaVantageLLMService.js'; // Corrected path
 
 import { GROQ_API_KEY } from '@env';
 
@@ -153,58 +154,103 @@ const SchemaRAGChatbox = ({ onClose }) => {
   });
 
   // Extract and resolve ticker from user query
-  const extractAndResolveTickerFromQuery = async (userQuery) => {
-    console.log('[SchemaRAGChatbox] extractAndResolveTickerFromQuery: START for query -', userQuery);
+  const determineQuerySourceAndEntities = async (userQuery) => {
+    console.log('[SchemaRAGChatbox] determineQuerySourceAndEntities: START for query -', userQuery);
     
-    const systemPrompt = `You are an AI assistant specialized in financial queries.
-Your task is to analyze the user's question and identify if it refers to a specific company by its name or ticker symbol.
-If a company name is found (e.g., "Apple", "Microsoft Corp"), try to map it to its common stock ticker (e.g., "AAPL", "MSFT").
-If a ticker symbol is directly mentioned, use that.
+    const systemPrompt = `You are an AI assistant specialized in financial queries. Your primary task is to determine the data source required to answer the user's question and extract relevant entities.
+Data Sources:
+1. "portfolio_db": Use this if the query is about the user's own portfolio holdings, performance, transaction history, stock by accounts, account values, or anything that would typically be stored in their personal investment database.
+2. "alpha_vantage": Use this if the query is about general market data, real-time stock prices, company overviews, news, currency exchange rates, or cryptocurrency data that is NOT specific to the user's personal holdings but rather general market information.
+   If the query does not clearly fit "portfolio_db", assume it is for "alpha_vantage".
 
+Entity Extraction:
+- If a company name is found (e.g., "Apple", "Microsoft Corp"), try to map it to its common stock ticker (e.g., "AAPL", "MSFT").
+- If a ticker symbol is directly mentioned, use that.
+- For Alpha Vantage, also identify if the query implies a specific type of data (e.g., "price", "overview", "news", "exchange_rate", "crypto_daily").
 Respond ONLY with a JSON object in the following format:
-- If a ticker is identified or resolved from a company name:
-  {"type": "ticker_identified", "ticker": "TICKER_SYMBOL", "original_mention": "User's Mention"}
-- If a company name is mentioned but cannot be confidently mapped to a ticker:
-  {"type": "company_name_unresolved", "name": "COMPANY_NAME", "original_mention": "User's Mention"}
-- If the query is general and does not seem to refer to a specific company/ticker:
-  {"type": "general_query"}
+{
+  "dataSource": "portfolio_db" | "alpha_vantage",
+  "entityInfo": { // Present if a specific company/ticker is relevant
+    "type": "ticker_identified" | "company_name_unresolved" | "general_query_entity", // 'general_query_entity' if dataSource is portfolio_db but no specific ticker
+    "ticker": "TICKER_SYMBOL_OR_NULL", // e.g., "AAPL"
+    "original_mention": "USER_MENTION_OR_NULL", // e.g., "Apple"
+    "name": "COMPANY_NAME_OR_NULL" // e.g., "XYZ Corp" if unresolved
+  },
+  "alphaVantageQueryType": "quote" | "overview" | "news" | "time_series_daily" | "currency_exchange" | "crypto_daily" | "search" | "general_market_info" | null // if dataSource is 'alpha_vantage'
+}
 
-Examples:
-User: "What's the price of Apple?" -> {"type": "ticker_identified", "ticker": "AAPL", "original_mention": "Apple"}
-User: "Tell me about MSFT" -> {"type": "ticker_identified", "ticker": "MSFT", "original_mention": "MSFT"}
-User: "Information on Tesla Inc." -> {"type": "ticker_identified", "ticker": "TSLA", "original_mention": "Tesla Inc."}
-User: "Market value of International Business Machines" -> {"type": "ticker_identified", "ticker": "IBM", "original_mention": "International Business Machines"}
-User: "What are my top holdings?" -> {"type": "general_query"}
-User: "Performance of XYZ Corp" (if XYZ Corp is not a known major company) -> {"type": "company_name_unresolved", "name": "XYZ Corp", "original_mention": "XYZ Corp"}`;
+IMPORTANT: Return ONLY the JSON object, no additional text, markdown, or explanations.`;
 
     try {
-      const llmResponse = await llmEntityExtraction.invoke([
-        { type: "system", content: systemPrompt },
-        { type: "human", content: userQuery },
-      ]);
-      
-      const parsedContent = JSON.parse(llmResponse.content);
-      console.log('[SchemaRAGChatbox] extractAndResolveTickerFromQuery: Parsed entity info -', parsedContent);
-      return parsedContent;
+        const llmResponse = await llmEntityExtraction.invoke([
+            { type: "system", content: systemPrompt },
+            { type: "human", content: userQuery },
+        ]);
+        
+        let rawContent = llmResponse.content.trim();
+        console.log('[SchemaRAGChatbox] Raw LLM response:', rawContent);
 
+        // Remove any markdown code block fences if present
+        const markdownMatch = rawContent.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+        if (markdownMatch && markdownMatch[1]) {
+            rawContent = markdownMatch[1].trim();
+        }
+
+        // Remove any text after the last closing brace
+        const lastBraceIndex = rawContent.lastIndexOf('}');
+        if (lastBraceIndex !== -1) {
+            rawContent = rawContent.substring(0, lastBraceIndex + 1);
+        }
+
+        console.log('[SchemaRAGChatbox] Cleaned content for parsing:', rawContent);
+
+        try {
+            const parsedContent = JSON.parse(rawContent);
+            
+            // Validate the parsed content has required fields
+            if (!parsedContent.dataSource) {
+                throw new Error('Missing required field: dataSource');
+            }
+
+            // Ensure entityInfo is present and has required fields if it exists
+            if (parsedContent.entityInfo) {
+                if (!parsedContent.entityInfo.type) {
+                    throw new Error('Missing required field: entityInfo.type');
+                }
+            }
+
+            console.log('[SchemaRAGChatbox] Successfully parsed and validated response:', parsedContent);
+            return parsedContent;
+        } catch (parseError) {
+            console.error('[SchemaRAGChatbox] JSON parse error:', parseError);
+            console.error('[SchemaRAGChatbox] Content that failed to parse:', rawContent);
+            throw new Error(`Failed to parse LLM response as JSON: ${parseError.message}`);
+        }
     } catch (error) {
-      console.error('[SchemaRAGChatbox] Error in extractAndResolveTickerFromQuery:', error);
-      return { type: "general_query", error: error.message };
+        console.error('[SchemaRAGChatbox] Error in determineQuerySourceAndEntities:', error);
+        // Return a safe default that will route to Alpha Vantage
+        return { 
+            dataSource: "alpha_vantage", 
+            entityInfo: { type: "general_query_entity" }, 
+            alphaVantageQueryType: "general_market_info",
+            error: error.message,
+            reasoning: "Error during source determination, defaulting to Alpha Vantage."
+        };
     }
   };
 
   // Generate SQL from context and entity info
-  const generateSQLFromContext = async (userQuery, schemaContexts, entityInfo) => {
+  const generateSQLFromContext = async (userQuery, schemaContexts, queryDetails) => {
     try {
       const contextText = schemaContexts
         .map(ctx => `${ctx.source_type.toUpperCase()}: ${ctx.content}`)
         .join('\n\n');
 
       let entityInstruction = "";
-      if (entityInfo?.type === 'ticker_identified' && entityInfo.ticker) {
-        entityInstruction = `IMPORTANT_TICKER_DIRECTIVE: The specific stock ticker symbol to use for this query is '${entityInfo.ticker}'. You MUST use this exact string in any SQL condition involving the ticker. Do NOT use "${entityInfo.original_mention}" or any ticker derived from the user's question text. Use ONLY '${entityInfo.ticker}'.`;
-      } else if (entityInfo?.type === 'company_name_unresolved' && entityInfo.name && entityInfo.original_mention) {
-        entityInstruction = `USER_MENTIONED_COMPANY_NAME: The user's query mentions the company name: "${entityInfo.name}" (originally mentioned as: "${entityInfo.original_mention}"). For this query, you should prioritize matching against a 'company_name' column if available in the schema, using an ILIKE comparison. For example, if the user mentioned "Example Corp", your SQL might include \`WHERE company_name ILIKE '%Example Corp%'\`. If a ticker can also be inferred and is available, you might use that as well.`;
+      if (queryDetails?.entityInfo?.type === 'ticker_identified' && queryDetails.entityInfo.ticker) {
+        entityInstruction = `IMPORTANT_TICKER_DIRECTIVE: The specific stock ticker symbol to use for this query is '${queryDetails.entityInfo.ticker}'. You MUST use this exact string in any SQL condition involving the ticker. Do NOT use "${queryDetails.entityInfo.original_mention}" or any ticker derived from the user's question text. Use ONLY '${queryDetails.entityInfo.ticker}'.`;
+      } else if (queryDetails?.entityInfo?.type === 'company_name_unresolved' && queryDetails.entityInfo.name && queryDetails.entityInfo.original_mention) {
+        entityInstruction = `USER_MENTIONED_COMPANY_NAME: The user's query mentions the company name: "${queryDetails.entityInfo.name}" (originally mentioned as: "${queryDetails.entityInfo.original_mention}"). For this query, you should prioritize matching against a 'company_name' column if available in the schema, using an ILIKE comparison. For example, if the user mentioned "Example Corp", your SQL might include \`WHERE company_name ILIKE '%Example Corp%'\`. If a ticker can also be inferred and is available, you might use that as well.`;
       }
 
       const systemPromptContent = `You are a PostgreSQL expert. Generate precise SQL SELECT queries based on schema and natural language questions. Always use ILIKE for case-insensitive text matching in WHERE clauses. Return only the SQL query without any explanations.`;
@@ -299,6 +345,7 @@ Example formats:
   JOIN portfolio_history ph_end ON ph_end.date = mb.end_date
 
 Your SQL query:`;
+
 
       const llmResponse = await llmSqlGeneration.invoke([
         { type: "system", content: systemPromptContent },
@@ -395,60 +442,74 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
     setMessages(prev => [...prev, userMessage]);
 
     try {
-      // Create the RAG processing chain
-      const mainChain = RunnableSequence.from([
-        // Step 1: Extract entity info and find similar contexts
-        RunnablePassthrough.assign({
-          entityInfo: new RunnableLambda({ 
-            func: async (input) => extractAndResolveTickerFromQuery(input.query) 
-          }).withConfig({ runName: "EntityExtraction" }),
-          similarContexts: new RunnableLambda({ 
-            func: async (input) => findSimilarSchemaContexts(supabaseClient, input.query) 
-          }).withConfig({ runName: "SchemaContextRetrieval" }),
-        }),
-        
-        // Step 2: Validate contexts exist
-        new RunnableLambda({
-          func: async (input) => {
-            if (!input.similarContexts || input.similarContexts.length === 0) {
-              throw new Error('No relevant schema context found for the query');
-            }
-            return input;
-          }
-        }).withConfig({ runName: "ContextValidation" }),
-        
-        // Step 3: Generate SQL
-        RunnablePassthrough.assign({
-          generatedSql: new RunnableLambda({ 
-            func: async (input) => generateSQLFromContext(input.query, input.similarContexts, input.entityInfo) 
-          }).withConfig({ runName: "SQLGeneration" }),
-        }),
-        
-        // Step 4: Format SQL for RPC execution
-        new RunnableLambda({
-          func: (input) => {
-            let baseSql = input.generatedSql.replace(/;$/, '');
-            const finalSqlForRpc = `SELECT row_to_json(t.*) FROM (${baseSql}) t`;
-            console.log('Final SQL for RPC:', finalSqlForRpc);
-            return { ...input, baseSql, finalSqlForRpc };
-          }
-        }).withConfig({ runName: "SQLFormattingForRPC" }),
-        
-        // Step 5: Execute query
-        RunnablePassthrough.assign({
-          queryResults: new RunnableLambda({ 
-            func: async (input) => executeSupabaseQuery(input.finalSqlForRpc) 
-          }).withConfig({ runName: "SQLExecution" }),
-        }),
-        
-        // Step 6: Format results into natural language
-        new RunnableLambda({ 
-          func: async (input) => formatQueryResults(input.query, input.baseSql, input.queryResults) 
-        }).withConfig({ runName: "NaturalLanguageFormatting" }),
-      ]);
+      // Step 1: Determine query source and extract entities
+      const queryDetails = await determineQuerySourceAndEntities(query);
 
-      const chainInput = { query };
-      const formattedResponse = await mainChain.invoke(chainInput);
+      let formattedResponse;
+
+      if (queryDetails.dataSource === "portfolio_db") {
+        console.log('[SchemaRAGChatbox] Query identified for Portfolio DB. Running RAG chain...');
+        // Create the RAG processing chain for portfolio data
+        const portfolioRagChain = RunnableSequence.from([
+          // Pass initial query and pre-determined queryDetails
+          RunnablePassthrough.assign({
+            queryDetails: () => queryDetails, // Add queryDetails to the chain's input object
+            similarContexts: new RunnableLambda({ 
+              func: async (input) => findSimilarSchemaContexts(supabaseClient, input.query) 
+            }).withConfig({ runName: "SchemaContextRetrieval" }),
+          }),
+          
+          // Validate contexts exist
+          new RunnableLambda({
+            func: async (input) => {
+              if (!input.similarContexts || input.similarContexts.length === 0) {
+                throw new Error('No relevant schema context found for your portfolio query.');
+              }
+              return input;
+            }
+          }).withConfig({ runName: "ContextValidation" }),
+          
+          // Generate SQL
+          RunnablePassthrough.assign({
+            generatedSql: new RunnableLambda({ 
+              // Pass queryDetails (which includes entityInfo) to generateSQLFromContext
+              func: async (input) => generateSQLFromContext(input.query, input.similarContexts, input.queryDetails) 
+            }).withConfig({ runName: "SQLGeneration" }),
+          }),
+          
+          // Format SQL for RPC execution
+          new RunnableLambda({
+            func: (input) => {
+              let baseSql = input.generatedSql.replace(/;$/, '');
+              const finalSqlForRpc = `SELECT row_to_json(t.*) FROM (${baseSql}) t`;
+              console.log('Final SQL for RPC:', finalSqlForRpc);
+              return { ...input, baseSql, finalSqlForRpc };
+            }
+          }).withConfig({ runName: "SQLFormattingForRPC" }),
+          
+          // Execute query
+          RunnablePassthrough.assign({
+            queryResults: new RunnableLambda({ 
+              func: async (input) => executeSupabaseQuery(input.finalSqlForRpc) 
+            }).withConfig({ runName: "SQLExecution" }),
+          }),
+          
+          // Format results into natural language
+          new RunnableLambda({ 
+            func: async (input) => formatQueryResults(input.query, input.baseSql, input.queryResults) 
+          }).withConfig({ runName: "NaturalLanguageFormatting" }),
+        ]);
+        formattedResponse = await portfolioRagChain.invoke({ query });
+
+      } else if (queryDetails.dataSource === "alpha_vantage") {
+        console.log('[SchemaRAGChatbox] Query identified for Alpha Vantage. Calling Alpha Vantage service...');
+        // Use the original user query for Alpha Vantage service
+        formattedResponse = await runAlphaVantagePipeline(query);
+      } else {
+        // This 'else' case should ideally not be reached if the LLM always returns one of the two.
+        console.warn(`[SchemaRAGChatbox] Unexpected dataSource: ${queryDetails.dataSource}. Defaulting to Alpha Vantage.`);
+        formattedResponse = await runAlphaVantagePipeline(query);
+      }
 
       const assistantMessage = {
         id: `assistant-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -460,10 +521,16 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
       
     } catch (error) {
       console.error('Error in message handling:', error);
+      let errorMessage = 'Sorry, there was an error processing your request. Please try again.';
+      if (error.message.includes('No relevant schema context found')) {
+        errorMessage = "I couldn't find relevant information in your portfolio for that query. Try asking about general market data if that's what you intended.";
+      } else if (error.message.includes('Failed to select Alpha Vantage function')) {
+        errorMessage = "I had trouble understanding how to fetch that market data. Could you try rephrasing?";
+      }
       setMessages(prev => [...prev, {
         id: `error-${Date.now()}`,
         role: 'assistant',
-        content: 'Sorry, there was an error processing your request. Please try again.',
+        content: errorMessage,
         mode: 'rag'
       }]);
     } finally {

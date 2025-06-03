@@ -18,7 +18,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { GROQ_API_KEY, ALPHA_VANTAGE_API_KEY } from '@env'; // Import ALPHA_VANTAGE_API_KEY
 import { useSupabaseConfig } from './SupabaseConfigContext'; // Import hook
 import { LinearGradient } from 'expo-linear-gradient';
-import { generateEmbedding } from './services/embeddingService';
+import { generateEmbedding } from './services/embeddingService.js';
 import { saveContextToDatabase } from './services/contextStorageService';
 
 const screenHeight = Dimensions.get('window').height;

@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#312E81', 
     backgroundColor: '#1E1B4B',
     position: 'absolute',
-    top: '87%',
+    top: '82%',
     left: 0,
     right: 0,
     zIndex: 10,

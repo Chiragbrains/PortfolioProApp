@@ -1,6 +1,6 @@
 // services/embeddingService.js
-import { useSupabaseConfig } from '../SupabaseConfigContext';
 import { HF_API_TOKEN } from '@env';
+import { useSupabaseConfig } from '../SupabaseConfigContext.js';
 
 // Function to generate embeddings using Hugging Face
 export async function generateEmbedding(text) {

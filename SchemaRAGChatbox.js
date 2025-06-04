@@ -41,7 +41,7 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 const PANEL_TOTAL_HEIGHT = SCREEN_HEIGHT * 1;
 const MINIMIZED_PANEL_HEIGHT = SCREEN_HEIGHT * 0.57; // Reduced height to ensure input field is visible
 
-const SchemaRAGChatbox = ({ onClose, onMinimizeChange }) => { // Added onMinimizeChange prop
+const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => { // Added navBarHeight prop
   // State management
   const [messages, setMessages] = useState([
     { 
@@ -560,9 +560,6 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
             },
           ]}
         >
-          <View style={componentStyles.dragHandleContainer}>
-            <View style={componentStyles.dragHandle} />
-          </View>
           <SchemaRAGChatboxUI
             messages={messages}
             inputTextValue={inputText}
@@ -570,6 +567,7 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
             onSendMessagePress={handleSend}
             isLoading={isLoading}
             onClose={onClose}
+            navBarHeight={navBarHeight} // Pass it to the UI component
           />
         </Animated.View>
       </GestureDetector>
@@ -607,17 +605,6 @@ const componentStyles = StyleSheet.create({
     zIndex: 1000,
     display: 'flex',
     flexDirection: 'column',
-  },
-  dragHandleContainer: {
-    paddingVertical: 10,
-    alignItems: 'center',
-    backgroundColor: '#7C3AED',
-  },
-  dragHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 2,
   },
 });
 

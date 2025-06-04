@@ -41,25 +41,23 @@ import ImportConfirmationModal from './components/ImportConfirmationModal';
 import PopupNotification from './components/PopupNotification';
 import AccountCard from './components/AccountCard';
 
-// --- Main App Component ---
-const { width: screenWidth } = Dimensions.get('window');
-const BASE_SCREEN_WIDTH = 975; // Base width (e.g., iPhone 8/SE) for scaling
-const scaleFactor = screenWidth / BASE_SCREEN_WIDTH;
+// --- Import Scaling Utilities ---
+import { scaleSize } from './utils/scaling.js';
 
-// Function to scale a size based on screen width
-const scaleSize = (size) => Math.round(size * scaleFactor);
+// Calculate nav bar height once in App's scope
+const APP_SCALED_NAV_BAR_HEIGHT = scaleSize(55); // Base height 55
 
 // --- BottomNavBar Component (defined within App.js or imported) ---
-const BottomNavBar = ({ activeTab, setActiveTab }) => {
-    // Calculate scaled styles dynamically
-    const scaledNavBarHeight = scaleSize(55); // Base height 55
+const BottomNavBar = ({ activeTab, setActiveTab, navBarHeight }) => { // Add navBarHeight prop
+    // Use the passed navBarHeight for the main View's height
+    // Other scaled sizes can still be calculated internally
     const scaledNavItemPaddingTop = scaleSize(8); // Base padding 8
     const scaledNavTextFontSize = scaleSize(20); // Base icon font size 20
     const scaledNavLabelFontSize = scaleSize(9); // Base label font size 9
     const scaledNavLabelMarginTop = scaleSize(2); // Base margin 2
 
     return (
-        <View style={[newStyles.navBar, { height: scaledNavBarHeight, paddingBottom: Platform.OS === 'ios' ? scaleSize(5) : 0 }]}>
+        <View style={[newStyles.navBar, { height: navBarHeight, paddingBottom: Platform.OS === 'ios' ? scaleSize(5) : 0 }]}>
             <TouchableOpacity style={[newStyles.navItem, { paddingTop: scaledNavItemPaddingTop }]} onPress={() => setActiveTab('portfolio')}>
                 {/* Use scaled font size for icon size prop */}
                 <PieChart size={scaledNavTextFontSize} strokeWidth={2.8} color={activeTab === 'portfolio' ? newStyles.navTextActive.color : newStyles.navText.color} />
@@ -883,7 +881,7 @@ export default function App() {
 
             {/* Bottom Navigation */}
             <View style={[newStyles.navBarContainer, { zIndex: 1000 }]}>
-                <BottomNavBar activeTab={activeTab} setActiveTab={setActiveTab} /> {/* Ensure BottomNavBar uses newStyles internally */}
+                <BottomNavBar activeTab={activeTab} setActiveTab={setActiveTab} navBarHeight={APP_SCALED_NAV_BAR_HEIGHT} />
             </View>
 
             {/* Floating Add Button */}
@@ -913,6 +911,7 @@ export default function App() {
                             setIsChatboxMinimized(false); // Reset minimized state when chatbox is closed
                         }}
                         onMinimizeChange={handleChatboxMinimizeChange} // Pass the callback
+                        navBarHeight={APP_SCALED_NAV_BAR_HEIGHT} // Pass the calculated height
                     />
                 </View>
             )}

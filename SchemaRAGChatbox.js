@@ -60,6 +60,11 @@ const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => { // A
   const translateY = useRef(new Animated.Value(0)).current;
   const dragStartTranslateY = useRef(0);
 
+  // Calculate the effective keyboard offset based on whether the chatbox is minimized
+  // When minimized, the main app's nav bar is visible, so we need to offset by its height.
+  // When expanded, the main app's nav bar is hidden, so the offset is 0.
+  const effectiveKeyboardOffset = isMinimized ? navBarHeight : 0;
+
   // Gesture handler for dragging
   const dragGesture = Gesture.Pan()    
     .onStart(() => {
@@ -566,8 +571,8 @@ For multiple owners: "AMD is held in Chirag's Robinhood and Schwab accounts, and
             onInputTextChange={setInputText}
             onSendMessagePress={handleSend}
             isLoading={isLoading}
-            onClose={onClose}
-            navBarHeight={navBarHeight} // Pass it to the UI component
+            onClose={onClose} // onClose is already passed
+            keyboardOffset={effectiveKeyboardOffset} // Pass the calculated offset
           />
         </Animated.View>
       </GestureDetector>

@@ -31,7 +31,7 @@ export const SchemaRAGChatbox = ({
   onSendMessagePress = () => {},
   isLoading = false,
   onClose,
-  navBarHeight = 0, // Add navBarHeight prop with a default
+  keyboardOffset = 0, // Renamed from navBarHeight, now represents the offset for KeyboardAvoidingView
 }) => {
   const scrollViewRef = useRef();
 
@@ -55,7 +55,7 @@ export const SchemaRAGChatbox = ({
   // Dynamic style for messageAreaWrapper to account for navBarHeight and inputArea height
   const dynamicMessageAreaWrapperStyle = {
     ...styles.messageAreaWrapper,
-    marginBottom: CALCULATED_INPUT_AREA_HEIGHT + navBarHeight,
+    marginBottom: CALCULATED_INPUT_AREA_HEIGHT, // Input area is at bottom: 0, so only its height is needed
   };
 
   return (
@@ -64,7 +64,7 @@ export const SchemaRAGChatbox = ({
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={styles.chatUIContainer} // Use a style that makes it fill its parent and sets background
-      keyboardVerticalOffset={Platform.OS === "ios" ? navBarHeight : 0} 
+      keyboardVerticalOffset={Platform.OS === "ios" ? keyboardOffset : 0} 
     >
       <View style={styles.header}>
         {/* Drag Handle - now on its own line */}
@@ -120,8 +120,8 @@ export const SchemaRAGChatbox = ({
         styles.inputArea,
         {
           padding: scaleSize(12),
-          borderTopWidth: scaleSize(1),
-          bottom: navBarHeight, // Position inputArea above the external nav bar
+          //borderTopWidth: scaleSize(1),
+          bottom: 0, // Input area should be at the bottom of its container
         }
       ]}>
         <TextInput
@@ -219,7 +219,7 @@ const styles = StyleSheet.create({
   },
   closeButtonText: {
     color: 'white',
-    fontSize: scaleFont(16), // Reduced base font size
+    fontSize: scaleFont(20), // Reduced base font size
     fontWeight: '500',
   },
   closeButtonPlaceholder: {
@@ -277,7 +277,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', 
     // padding is now dynamic
     // borderTopWidth is now dynamic
-    borderTopColor: '#312E81', 
+    //borderTopColor: '#312E81', 
     backgroundColor: '#1E1B4B',
     position: 'absolute', 
     // bottom is now dynamic, set in the component's style prop
@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
     // height is now dynamic
     // borderWidth is now dynamic
     borderColor: '#7C3AED',
-    minHeight: scaleSize(40), // Scaled
+    minHeight: scaleSize(31), // Scaled
     // fontSize is now dynamic
     fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
   },

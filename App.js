@@ -45,30 +45,30 @@ import AccountCard from './components/AccountCard';
 import { scaleSize } from './utils/scaling.js';
 
 // Calculate nav bar height once in App's scope
-const APP_SCALED_NAV_BAR_HEIGHT = scaleSize(55); // Base height 55
+const APP_SCALED_NAV_BAR_HEIGHT = scaleSize(48); // Base height 55
 
 // --- BottomNavBar Component (defined within App.js or imported) ---
 const BottomNavBar = ({ activeTab, setActiveTab, navBarHeight }) => { // Add navBarHeight prop
     // Use the passed navBarHeight for the main View's height
     // Other scaled sizes can still be calculated internally
-    const scaledNavItemPaddingTop = scaleSize(8); // Base padding 8
-    const scaledNavTextFontSize = scaleSize(20); // Base icon font size 20
-    const scaledNavLabelFontSize = scaleSize(9); // Base label font size 9
+    const scaledNavItemPaddingTop = scaleSize(4); // Base padding 8
+    const scaledNavTextFontSize = scaleSize(22); // Base icon font size 20
+    const scaledNavLabelFontSize = scaleSize(10); // Base label font size 9
     const scaledNavLabelMarginTop = scaleSize(2); // Base margin 2
 
     return (
         <View style={[newStyles.navBar, { height: navBarHeight, paddingBottom: Platform.OS === 'ios' ? scaleSize(5) : 0 }]}>
             <TouchableOpacity style={[newStyles.navItem, { paddingTop: scaledNavItemPaddingTop }]} onPress={() => setActiveTab('portfolio')}>
                 {/* Use scaled font size for icon size prop */}
-                <PieChart size={scaledNavTextFontSize} strokeWidth={2.8} color={activeTab === 'portfolio' ? newStyles.navTextActive.color : newStyles.navText.color} />
+                <PieChart size={scaledNavTextFontSize} strokeWidth={3} color={activeTab === 'portfolio' ? newStyles.navTextActive.color : newStyles.navText.color} />
                 <Text style={[newStyles.navLabel, { fontSize: scaledNavLabelFontSize, marginTop: scaledNavLabelMarginTop }, activeTab === 'portfolio' && newStyles.navLabelActive]}>Portfolio</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[newStyles.navItem, { paddingTop: scaledNavItemPaddingTop }]} onPress={() => setActiveTab('accountDetail')}>
-                <Users size={scaledNavTextFontSize} strokeWidth={2.8} color={activeTab === 'accountDetail' ? newStyles.navTextActive.color : newStyles.navText.color} />
+                <Users size={scaledNavTextFontSize} strokeWidth={3} color={activeTab === 'accountDetail' ? newStyles.navTextActive.color : newStyles.navText.color} />
                 <Text style={[newStyles.navLabel, { fontSize: scaledNavLabelFontSize, marginTop: scaledNavLabelMarginTop }, activeTab === 'accountDetail' && newStyles.navLabelActive]}>Accounts</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[newStyles.navItem, { paddingTop: scaledNavItemPaddingTop }]} onPress={() => setActiveTab('dashboard')}>
-                <BarChart3 size={scaledNavTextFontSize} strokeWidth={2.8} color={activeTab === 'dashboard' ? newStyles.navTextActive.color : newStyles.navText.color} />
+                <BarChart3 size={scaledNavTextFontSize} strokeWidth={3} color={activeTab === 'dashboard' ? newStyles.navTextActive.color : newStyles.navText.color} />
                 <Text style={[newStyles.navLabel, { fontSize: scaledNavLabelFontSize, marginTop: scaledNavLabelMarginTop }, activeTab === 'dashboard' && newStyles.navLabelActive]}>Dashboard</Text>
             </TouchableOpacity>
         </View>
@@ -880,9 +880,12 @@ export default function App() {
             </View>
 
             {/* Bottom Navigation */}
-            <View style={[newStyles.navBarContainer, { zIndex: 1000 }]}>
-                <BottomNavBar activeTab={activeTab} setActiveTab={setActiveTab} navBarHeight={APP_SCALED_NAV_BAR_HEIGHT} />
-            </View>
+            {/* Conditionally render BottomNavBar */}
+            {(!isChatboxVisible || isChatboxMinimized) && (
+                <View style={[newStyles.navBarContainer, { zIndex: 1000 }]}>
+                    <BottomNavBar activeTab={activeTab} setActiveTab={setActiveTab} navBarHeight={APP_SCALED_NAV_BAR_HEIGHT} />
+                </View>
+            )}
 
             {/* Floating Add Button */}
             {activeTab !== 'dashboard' && activeTab !== 'history' && (!isChatboxVisible || isChatboxMinimized) && (
@@ -1179,7 +1182,7 @@ const newStyles = StyleSheet.create({
         borderRadius: 10,
         paddingHorizontal: 15,
         paddingVertical: 12,
-        fontSize: 15,
+        fontSize: 16, // Increased from 15 to 16
         borderWidth: 1,
         borderColor: '#E0E7F1',
        },
@@ -1220,7 +1223,7 @@ const newStyles = StyleSheet.create({
         alignItems: 'center',
     },
     accountName: {
-        fontSize: 17,
+        fontSize: 18, // Increased from 17
         fontWeight: '600',
         color: '#1A2E4C',
     },
@@ -1266,7 +1269,7 @@ const newStyles = StyleSheet.create({
         marginRight: 8, // Space between left and right
     },
     transactionTicker: {
-        fontSize: 14, // Slightly smaller
+        fontSize: 15, // Increased from 14
         fontWeight: '500',
         color: '#1A2E4C',
     },
@@ -1286,7 +1289,7 @@ const newStyles = StyleSheet.create({
         flexShrink: 0, // Prevent right side from shrinking
     },
     transactionQtyCost: { // Combined Qty and Avg Cost
-        fontSize: 13,
+        fontSize: 14, // Increased from 13
         color: '#6C7A91',
         marginLeft: 8, // Space after ticker
     },
@@ -1308,8 +1311,8 @@ const newStyles = StyleSheet.create({
     // FAB
     fab: {
         position: 'absolute',
-        bottom: 80,
-        right: 20,
+        bottom: 100, // Increased value to move it higher
+        right: 10,
         width: 60,
         height: 60,
         borderRadius: 30,
@@ -1458,7 +1461,7 @@ const newStyles = StyleSheet.create({
         borderRadius: 6,
         paddingHorizontal: 10,
         paddingVertical: Platform.OS === 'ios' ? 8 : 6,
-        fontSize: 13,
+        fontSize: 16, // Increased from 13 to 16
         borderWidth: 1,
         borderColor: '#E0E7F1',
         paddingRight: 28,
@@ -1516,8 +1519,8 @@ const newStyles = StyleSheet.create({
     },
     chatButton: {
         position: 'absolute',
-        left: 16,
-        bottom: 80,
+        left: 10,
+        bottom: 100,
         width: 56,
         height: 56,
         borderRadius: 28,

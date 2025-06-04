@@ -5,7 +5,7 @@ import {
     ActivityIndicator, Alert, Platform, TextInput, Dimensions, FlatList
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import * as DocumentPicker from 'expo-document-picker';
+import * as DocumentPicker from 'expo-document-picker'; // Keep this import
 import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -34,14 +34,49 @@ import DashboardSummary from './components/DashboardSummary';
 import HoldingListItem from './components/HoldingListItem';
 import { formatNumber, formatTimestamp } from './utils/formatters';
 
-// --- Import New Components ---
-import BottomNavBar from './components/BottomNavBar';
+// --- Import New Components (BottomNavBar is now defined in this file) ---
+// import BottomNavBar from './components/BottomNavBar'; 
 import MenuDrawer from './components/MenuDrawer';
 import ImportConfirmationModal from './components/ImportConfirmationModal';
 import PopupNotification from './components/PopupNotification';
 import AccountCard from './components/AccountCard';
 
 // --- Main App Component ---
+const { width: screenWidth } = Dimensions.get('window');
+const BASE_SCREEN_WIDTH = 975; // Base width (e.g., iPhone 8/SE) for scaling
+const scaleFactor = screenWidth / BASE_SCREEN_WIDTH;
+
+// Function to scale a size based on screen width
+const scaleSize = (size) => Math.round(size * scaleFactor);
+
+// --- BottomNavBar Component (defined within App.js or imported) ---
+const BottomNavBar = ({ activeTab, setActiveTab }) => {
+    // Calculate scaled styles dynamically
+    const scaledNavBarHeight = scaleSize(55); // Base height 55
+    const scaledNavItemPaddingTop = scaleSize(8); // Base padding 8
+    const scaledNavTextFontSize = scaleSize(20); // Base icon font size 20
+    const scaledNavLabelFontSize = scaleSize(9); // Base label font size 9
+    const scaledNavLabelMarginTop = scaleSize(2); // Base margin 2
+
+    return (
+        <View style={[newStyles.navBar, { height: scaledNavBarHeight, paddingBottom: Platform.OS === 'ios' ? scaleSize(5) : 0 }]}>
+            <TouchableOpacity style={[newStyles.navItem, { paddingTop: scaledNavItemPaddingTop }]} onPress={() => setActiveTab('portfolio')}>
+                {/* Use scaled font size for icon size prop */}
+                <PieChart size={scaledNavTextFontSize} strokeWidth={2.8} color={activeTab === 'portfolio' ? newStyles.navTextActive.color : newStyles.navText.color} />
+                <Text style={[newStyles.navLabel, { fontSize: scaledNavLabelFontSize, marginTop: scaledNavLabelMarginTop }, activeTab === 'portfolio' && newStyles.navLabelActive]}>Portfolio</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[newStyles.navItem, { paddingTop: scaledNavItemPaddingTop }]} onPress={() => setActiveTab('accountDetail')}>
+                <Users size={scaledNavTextFontSize} strokeWidth={2.8} color={activeTab === 'accountDetail' ? newStyles.navTextActive.color : newStyles.navText.color} />
+                <Text style={[newStyles.navLabel, { fontSize: scaledNavLabelFontSize, marginTop: scaledNavLabelMarginTop }, activeTab === 'accountDetail' && newStyles.navLabelActive]}>Accounts</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[newStyles.navItem, { paddingTop: scaledNavItemPaddingTop }]} onPress={() => setActiveTab('dashboard')}>
+                <BarChart3 size={scaledNavTextFontSize} strokeWidth={2.8} color={activeTab === 'dashboard' ? newStyles.navTextActive.color : newStyles.navText.color} />
+                <Text style={[newStyles.navLabel, { fontSize: scaledNavLabelFontSize, marginTop: scaledNavLabelMarginTop }, activeTab === 'dashboard' && newStyles.navLabelActive]}>Dashboard</Text>
+            </TouchableOpacity>
+        </View>
+    );
+};
+
 export default function App() {
     // --- State (Keep ALL existing state variables) ---
     const [summaryData, setSummaryData] = useState([]);
@@ -848,7 +883,7 @@ export default function App() {
 
             {/* Bottom Navigation */}
             <View style={[newStyles.navBarContainer, { zIndex: 1000 }]}>
-                <BottomNavBar activeTab={activeTab} setActiveTab={setActiveTab} />
+                <BottomNavBar activeTab={activeTab} setActiveTab={setActiveTab} /> {/* Ensure BottomNavBar uses newStyles internally */}
             </View>
 
             {/* Floating Add Button */}
@@ -964,24 +999,10 @@ const newStyles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: '#E0E7F1',
         //zIndex: 1, // Lower z-index for nav bar
+        // Height and paddingBottom are now calculated dynamically in BottomNavBar component
     },
-    navItem: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingTop: 8,
-    },
-    navText: {
-        fontSize: 22, // Emoji size
-        color: '#8A94A6', // Inactive color
-    },
-    navTextActive: {
-        color: '#0066cc', // Active color (primary)
-    },
-    navLabel: {
-        fontSize: 10,
-        color: '#8A94A6',
-        marginTop: 2,
+    navBar: { // Base style for the View inside BottomNavBar component
+        flexDirection: 'row',
     },
     navLabelActive: {
         color: '#0066cc',
@@ -989,6 +1010,27 @@ const newStyles = StyleSheet.create({
     },
     // Summary Card (Dashboard)
     // Styles for DashboardSummary update
+    // --- Scaled Styles (Base values defined here, scaling applied in components) ---
+    navItem: { // Base style for nav items
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        // paddingTop is now calculated dynamically
+    },
+    navText: { // Base style for icon text (used for color)
+        // fontSize is now calculated dynamically
+        color: '#8A94A6', // Inactive color
+    },
+    navTextActive: { // Base style for active icon text (used for color)
+        color: '#0066cc', // Active color (primary)
+    },
+    navLabel: { // Base style for label text
+        // fontSize is now calculated dynamically
+        color: '#8A94A6',
+        // marginTop is now calculated dynamically
+    },
+
+    // --- Other Styles (Keep existing or adjust as needed) ---
     summaryCard: { // Keep existing card styles
         backgroundColor: '#FFFFFF',
         borderRadius: 12,
@@ -1489,6 +1531,7 @@ const newStyles = StyleSheet.create({
         shadowRadius: 8,
         elevation: 8,
         zIndex: 100,
+        // bottom: scaleSize(80), // Example: Scale FAB position too
         borderWidth: 1,
         borderColor: 'rgba(124, 58, 237, 0.2)', // Subtle border
     },

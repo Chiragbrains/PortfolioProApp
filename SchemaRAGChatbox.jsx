@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#312E81', 
     backgroundColor: '#1E1B4B',
     position: 'absolute',
-    top: '82%',
+    top: '87%',
     left: 0,
     right: 0,
     zIndex: 10,
@@ -206,7 +206,7 @@ const styles = StyleSheet.create({
     height: 44, 
     borderWidth: 1, 
     borderColor: '#7C3AED',
-    minHeight: 44,
+    minHeight: 40,
     fontSize: 15,
     fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
   },
@@ -232,8 +232,8 @@ const styles = StyleSheet.create({
   sendButtonText: { 
     color: 'white', 
     fontWeight: '600',
-    fontSize: 15,
-    letterSpacing: 0.5,
+    fontSize: 16,
+    letterSpacing: 1,
     fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
 });

@@ -16,7 +16,7 @@ class YFinanceHandler {
         this.isProcessing = false;
         this.pythonProcess = null;
         console.log(`[YFinanceHandler] Initialized with server URL: ${this.serverUrl}`);
-    }
+    } 
 
     setServerUrl(url) {
         if (!url) {

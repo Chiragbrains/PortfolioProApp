@@ -190,23 +190,39 @@ const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => { // A
     const systemPrompt = `You are an AI assistant specialized in financial queries. Your primary task is to determine the data source required to answer the user's question and extract relevant entities.
 Data Sources:
 1. "portfolio_db": Use this if the query is about the user's own portfolio holdings, performance, transaction history, stock by accounts, account values, or anything that would typically be stored in their personal investment database.
+<<<<<<< HEAD
 2. "yfinance": Use this if the query is about general market data, real-time stock prices, company overviews, news, financial metrics (earnings, P/E ratio, beta, market cap, etc.), or any stock-related information that is NOT specific to the user's personal holdings.
    If the query does not clearly fit "portfolio_db", assume it is for "yfinance".
+=======
+2. "alpha_vantage": Use this if the query is about general market data, real-time stock prices, company overviews, news, currency exchange rates, or cryptocurrency data that is NOT specific to the user's personal holdings but rather general market information.
+   If the query does not clearly fit "portfolio_db", assume it is for "alpha_vantage".
+>>>>>>> fb2be1564b803860797a6f678695cebbf7151ca2
 
 Entity Extraction:
 - If a company name is found (e.g., "Apple", "Microsoft Corp"), try to map it to its common stock ticker (e.g., "AAPL", "MSFT").
 - If a ticker symbol is directly mentioned, use that.
+<<<<<<< HEAD
 - For YFinance, also identify if the query implies a specific type of data (e.g., "earnings", "beta", "pe_ratio", "market_cap", "price", "overview", "news").
 Respond ONLY with a JSON object in the following format:
 {
   "dataSource": "portfolio_db" | "yfinance",
+=======
+- For Alpha Vantage, also identify if the query implies a specific type of data (e.g., "price", "overview", "news", "exchange_rate", "crypto_daily").
+Respond ONLY with a JSON object in the following format:
+{
+  "dataSource": "portfolio_db" | "alpha_vantage",
+>>>>>>> fb2be1564b803860797a6f678695cebbf7151ca2
   "entityInfo": { // Present if a specific company/ticker is relevant
     "type": "ticker_identified" | "company_name_unresolved" | "general_query_entity", // 'general_query_entity' if dataSource is portfolio_db but no specific ticker
     "ticker": "TICKER_SYMBOL_OR_NULL", // e.g., "AAPL"
     "original_mention": "USER_MENTION_OR_NULL", // e.g., "Apple"
     "name": "COMPANY_NAME_OR_NULL" // e.g., "XYZ Corp" if unresolved
   },
+<<<<<<< HEAD
   "yfinanceQueryType": "quarterly_earnings" | "earnings" | "beta" | "pe_ratio" | "market_cap" | "price" | "overview" | "news" | "general_market_info" | null // if dataSource is 'yfinance'
+=======
+  "alphaVantageQueryType": "quote" | "overview" | "news" | "time_series_daily" | "currency_exchange" | "crypto_daily" | "search" | "general_market_info" | null // if dataSource is 'alpha_vantage'
+>>>>>>> fb2be1564b803860797a6f678695cebbf7151ca2
 }
 
 IMPORTANT: Return ONLY the JSON object, no additional text, markdown, or explanations.`;

@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "StockPortfolioApp",
+    "slug": "StockPortfolioApp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.StockPortfolioApp"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.anonymous.StockPortfolioApp"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "viewport": {
+        "width": "device-width",
+        "initial-scale": 1,
+        "maximum-scale": 1,
+        "user-scalable": false
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "41d66283-3328-4b2b-b572-8d6a882e1fce"
+      }
+    }
+  }
+}

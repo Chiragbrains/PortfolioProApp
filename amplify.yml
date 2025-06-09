@@ -1,0 +1,33 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - echo "Creating .env file for build..."
+        - echo "SUPABASE_URL=$SUPABASE_URL" > .env
+        - echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
+        - echo "GROQ_API_KEY=$GROQ_API_KEY" >> .env
+        - echo "HF_API_TOKEN=$HF_API_TOKEN" >> .env
+        - npm install
+    build:
+      commands:
+        - export NODE_OPTIONS=--max_old_space_size=4096
+        - npm run build
+        - echo "Listing directories:"
+        - ls -la
+  artifacts:
+    baseDirectory: dist
+    files:
+      - '**/*'
+  headers:
+    - pattern: '**/*'
+      headers:
+        - key: 'Access-Control-Allow-Origin'
+          value: '*'
+        - key: 'Access-Control-Allow-Headers'
+          value: 'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+        - key: 'Access-Control-Allow-Methods'
+          value: 'GET, POST, PUT, DELETE, OPTIONS'
+  cache:
+    paths:
+      - node_modules/**/*

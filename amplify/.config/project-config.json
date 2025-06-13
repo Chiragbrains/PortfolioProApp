@@ -1,0 +1,17 @@
+{
+  "providers": [
+    "awscloudformation"
+  ],
+  "projectName": "StockPortfolioApp",
+  "version": "3.1",
+  "frontend": "javascript",
+  "javascript": {
+    "framework": "react-native",
+    "config": {
+      "SourceDir": "/Users/chirag/Downloads/Test App - Coding/StockPortfolioApp/",
+      "DistributionDir": "web-build",
+      "BuildCommand": "expo build:web",
+      "StartCommand": "expo start"
+    }
+  }
+}

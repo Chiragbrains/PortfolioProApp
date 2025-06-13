@@ -1,0 +1,40 @@
+// {
+//     // Use IntelliSense to learn about possible attributes.
+//     // Hover to view descriptions of existing attributes.
+//     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+//     "version": "0.2.0",
+//     "configurations": [
+//         {
+//             "type": "chrome",
+//             "request": "launch",
+//             "name": "Launch Chrome against localhost",
+//             "url": "http://localhost:8080",
+//             "webRoot": "${workspaceFolder}"
+//         }
+//     ]
+// }
+
+{
+    "name": "stockportfolioapp",
+    "version": "1.0.0",
+    "scripts": {
+        "scripts": {
+        "start": "expo start", // Starts the Expo development server
+        "android": "expo start --android", // Runs the app on an Android device/emulator
+        "ios": "expo start --ios", // Runs the app on an iOS simulator/device
+        "web": "expo start --web", // Runs the app in a web browser
+        "build:web": "npx expo export:web", // Builds the web version of the app
+        "eject": "expo eject" // Ejects the app to a bare React Native project
+        }
+    },
+    "configurations": [
+      {
+        "name": "Debug Expo",
+        "request": "launch",
+        "type": "node",
+        "cwd": "${workspaceFolder}",
+        "runtimeExecutable": "npm",
+        "runtimeArgs": ["start"]
+      }
+    ]
+  }

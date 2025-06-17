@@ -26,14 +26,14 @@ import { GROQ_API_KEY } from '@env'; // Import the Groq key from .env
 
 const { width: initialScreenWidth, height: initialScreenHeight } = Dimensions.get('window');
 
-// --- Chart Configuration Constants ---
+// -- Chart Configuration Constants --
 // Adjusted for no Y-axis labels
 const CHART_PADDING_LEFT = Platform.OS === 'ios' ? 15 : 10; // Increased padding for iOS
 const CHART_PADDING_RIGHT = Platform.OS === 'ios' ? 20 : 16;
 const Y_AXIS_LABEL_WIDTH = 0; // Set to 0 as labels are hidden
 const CHART_MARGIN_VERTICAL = Platform.OS === 'ios' ? 15 : 10;
 const CHART_HEIGHT = Math.min(initialScreenHeight * 0.3, 220); // Make height responsive
-// --- End Chart Configuration Constants ---
+// -- End Chart Configuration Constants --
 
 export const PortfolioGraph = () => {
   const [historyData, setHistoryData] = useState(null);

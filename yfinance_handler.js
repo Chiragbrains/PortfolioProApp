@@ -44,7 +44,7 @@ class YFinanceHandler {
         console.log('[YFinanceHandler] Processing query:', query);
 
         try {
-            const response = await fetch(`${this.serverUrl}/analyze`, {
+            const response = await fetch(`${this.serverUrl}/analyze_stock`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

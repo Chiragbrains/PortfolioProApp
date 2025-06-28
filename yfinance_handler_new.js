@@ -7,7 +7,6 @@ class YFinanceHandler {
         //this.serverUrl = 'REACT_APP_API_BASE_URL';
         const BASE_URL = process.env.REACT_APP_API_BASE_URL;
         //const BASE_URL = 'http://localhost:5002';
-        //const BASE_URL = 'http://127.0.0.1:8000';
         this.serverUrl = BASE_URL;
         // Override for Android emulator
         if (Platform.OS === 'android') {
@@ -25,7 +24,7 @@ class YFinanceHandler {
             return;
         }
         this.serverUrl = url;
-        console.log(`[YFinanceHandler] Server URL updated to: ${this.serverUrl}`);
+        console.log(`[YFinanceHandler] Server URL updated  to: ${this.serverUrl}`);
     }
 
     async processQuery(query) {

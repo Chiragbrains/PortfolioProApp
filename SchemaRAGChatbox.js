@@ -35,7 +35,8 @@ import {
 import { SchemaRAGChatbox as SchemaRAGChatboxUI } from './SchemaRAGChatbox.jsx';
 import { getDynamicAlphaVantageResponse, runAlphaVantagePipeline } from './services/alphaVantageLLMService.js'; // Corrected path
 
-import { GROQ_API_KEY } from '@env';
+import { GROQ_API_KEYS } from '@env';
+console.log('GROQ_API_KEY loaded in SchemaRAGChatbox:', GROQ_API_KEYS);
 
 // Import YFinance handler
 import YFinanceHandler from './yfinance_handler.js';
@@ -162,13 +163,13 @@ const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => { // A
 
   // LLM instances
   const llmEntityExtraction = new ChatGroq({
-    apiKey: GROQ_API_KEY,
+    apiKey: GROQ_API_KEYS,
     model: "meta-llama/llama-4-scout-17b-16e-instruct",
     temperature: 0.1,
   });
 
   const llmSqlGeneration = new ChatGroq({
-    apiKey: GROQ_API_KEY,
+    apiKey: GROQ_API_KEYS,
     model: "meta-llama/llama-4-scout-17b-16e-instruct",
     temperature: 0.1,
   });

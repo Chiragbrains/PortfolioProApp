@@ -154,7 +154,8 @@ export const SchemaRAGChatbox = ({
 
   const renderMessage = (message) => {
     const isUser = message.role === 'user';
-    const messageStyle = isUser ? styles.userMessage : styles.botMessage;
+    // For bot messages, make them full width; for user, keep as before
+    const messageStyle = isUser ? styles.userMessage : [styles.botMessage, styles.fullWidthBotMessage];
     const textStyle = isUser ? styles.userText : styles.botText;
 
     return (
@@ -199,7 +200,6 @@ export const SchemaRAGChatbox = ({
             >
               {message.content}
             </Markdown>
-            
             {/* Render charts if available */}
             {message.charts && Object.entries(message.charts).map(([key, chart]) => (
               <View key={`chart-${key}`} style={styles.chartContainer}>
@@ -440,6 +440,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#312E81',
     alignSelf: 'flex-start',
     borderBottomLeftRadius: scaleSize(4), // Scaled
+  },
+  fullWidthBotMessage: {
+    alignSelf: 'stretch',
+    maxWidth: '100%',
+    width: '100%',
   },
   userText: { 
     color: 'white',

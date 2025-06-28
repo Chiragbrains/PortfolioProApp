@@ -5,8 +5,8 @@ class YFinanceHandler {
     constructor() {
         // Set default server URL
         //this.serverUrl = 'REACT_APP_API_BASE_URL';
-        const BASE_URL = process.env.REACT_APP_API_BASE_URL;
-        //const BASE_URL = 'http://localhost:5002';
+        //const BASE_URL = process.env.REACT_APP_API_BASE_URL;
+        const BASE_URL = 'http://localhost:5002';
         //const BASE_URL = 'http://127.0.0.1:8000';
         this.serverUrl = BASE_URL;
         // Override for Android emulator
@@ -45,7 +45,7 @@ class YFinanceHandler {
         console.log('[YFinanceHandler] Processing query:', query);
 
         try {
-            const response = await fetch(`${this.serverUrl}/analyze`, {
+            const response = await fetch(`${this.serverUrl}/analyze_stock`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

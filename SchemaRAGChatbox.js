@@ -163,13 +163,13 @@ const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => { // A
 
   // LLM instances
   const llmEntityExtraction = new ChatGroq({
-    apiKey: GROQ_API_KEYS,
+    apiKey: GROQ_API_KEY,
     model: "meta-llama/llama-4-scout-17b-16e-instruct",
     temperature: 0.1,
   });
 
   const llmSqlGeneration = new ChatGroq({
-    apiKey: GROQ_API_KEYS,
+    apiKey: GROQ_API_KEY,
     model: "meta-llama/llama-4-scout-17b-16e-instruct",
     temperature: 0.1,
   });

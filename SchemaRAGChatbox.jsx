@@ -160,65 +160,26 @@ export const SchemaRAGChatbox = ({
 
     return (
       <View key={message.id} style={[styles.message, messageStyle]}>
-        {isUser ? (
-          <Text 
-            style={textStyle}
-            selectable={true}
-            onSelectionChange={({ nativeEvent }) => {
-              if (nativeEvent.selection) {
-                handleTextSelectionStart();
-              } else {
-                handleTextSelectionEnd();
-              }
-            }}
-          >
-            {message.content}
-          </Text>
-        ) : (
-          <View
-            onStartShouldSetResponder={() => true}
-            onResponderGrant={handleTextSelectionStart}
-            onResponderRelease={handleTextSelectionEnd}
-            onResponderTerminate={handleTextSelectionEnd}
-          >
-            <Markdown 
-              style={{
-                ...markdownStyles,
-                body: {
-                  ...markdownStyles.body,
-                  userSelect: 'text',
-                },
-                paragraph: {
-                  ...markdownStyles.paragraph,
-                  userSelect: 'text',
-                },
-                list_item: {
-                  ...markdownStyles.list_item,
-                  userSelect: 'text',
-                },
-              }}
-            >
-              {message.content}
-            </Markdown>
-            {/* Render charts if available */}
-            {message.charts && Object.entries(message.charts).map(([key, chart]) => (
-              <View key={`chart-${key}`} style={styles.chartContainer}>
-                <Image
-                  source={{ uri: `data:image/png;base64,${chart.data}` }}
-                  style={styles.chart}
-                  resizeMode="contain"
-                  onError={(e) => console.error('Error loading chart:', e.nativeEvent.error)}
-                />
-                <Text style={styles.chartCaption}>
-                  {chart.type.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                </Text>
-              </View>
-            ))}
-
-            {/* Add raw data button if data is available */}
-            {renderRawDataButton(message.rawData)}
+        <Text style={textStyle}>
+          {message.content}
+        </Text>
+        {/* Render charts if available */}
+        {message.charts && Object.entries(message.charts).map(([key, chart]) => (
+          <View key={`chart-${key}`} style={styles.chartContainer}>
+            <Image
+              source={{ uri: `data:image/png;base64,${chart.data}` }}
+              style={styles.chart}
+              resizeMode="contain"
+              onError={(e) => console.error('Error loading chart:', e.nativeEvent.error)}
+            />
+            <Text style={styles.chartCaption}>
+              {chart.type.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+            </Text>
           </View>
-        )}
+        ))}
+
+        {/* Add raw data button if data is available */}
+        {renderRawDataButton(message.rawData)}
       </View>
     );
   };

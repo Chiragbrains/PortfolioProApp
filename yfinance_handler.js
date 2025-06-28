@@ -1,15 +1,19 @@
 // yfinance_handler.js
 import { Platform } from 'react-native';
-import { REACT_APP_API_BASE_URL } from '@env';
 
 class YFinanceHandler {
     constructor() {
-        // Set default server URL from .env using @env import
-        this.serverUrl = REACT_APP_API_BASE_URL;
-        // If you need a special Android override, add REACT_APP_API_BASE_URL_ANDROID to your .env and Amplify
-        // if (Platform.OS === 'android' && REACT_APP_API_BASE_URL_ANDROID) {
-        //     this.serverUrl = REACT_APP_API_BASE_URL_ANDROID;
-        // }
+        // Set default server URL
+        //this.serverUrl = 'REACT_APP_API_BASE_URL';
+        const BASE_URL = 'https://t1rsk0igv1.execute-api.us-east-1.amazonaws.com/prod';
+        //const BASE_URL = 'http://localhost:5002';
+        //const BASE_URL = 'http://127.0.0.1:8000';
+        this.serverUrl = BASE_URL;
+        // Override for Android emulator
+        if (Platform.OS === 'android') {
+            this.serverUrl = 'BASE_URL';
+        }
+        
         this.isProcessing = false;
         this.pythonProcess = null;
         console.log(`[YFinanceHandler] Initialized with server URL: ${this.serverUrl}`);
@@ -41,7 +45,7 @@ class YFinanceHandler {
         console.log('[YFinanceHandler] Processing query:', query);
 
         try {
-            const response = await fetch(`${this.serverUrl}`, {
+            const response = await fetch(`${this.serverUrl}/analyze_stock`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -112,4 +116,4 @@ class YFinanceHandler {
     }
 }
 
-export default YFinanceHandler;
+export default YFinanceHandler; 

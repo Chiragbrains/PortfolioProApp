@@ -627,16 +627,16 @@ Details:
       }
 
       // Process the formatted response to extract chart references
-      const chartRegex = /\[CHART:(\w+)\]/g;
-      const chartMatches = [...formattedResponse.matchAll(chartRegex)];
+      // const chartRegex = /\[CHART:(\w+)\]/g;
+      // const chartMatches = [...formattedResponse.matchAll(chartRegex)];
       
-      // Remove chart references from the text
-      const cleanResponse = formattedResponse.replace(chartRegex, '').trim();
+      // Remove chart references from the text (DISABLED: show full LLM output)
+      // const cleanResponse = formattedResponse.replace(chartRegex, '').trim();
 
       const assistantMessage = {
         id: `assistant-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         role: 'assistant',
-        content: cleanResponse,
+        content: formattedResponse, // Use full LLM output
         mode: 'rag',
         charts: charts.length > 0 ? charts : undefined,
         rawData: rawData

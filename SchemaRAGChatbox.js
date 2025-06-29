@@ -35,7 +35,8 @@ import {
 import { SchemaRAGChatbox as SchemaRAGChatboxUI } from './SchemaRAGChatbox.jsx';
 import { getDynamicAlphaVantageResponse, runAlphaVantagePipeline } from './services/alphaVantageLLMService.js'; // Corrected path
 
-import { GROQ_API_KEY } from '@env';
+//import { GROQ_API_KEY } from '@env';
+const GROQ_API_KEY='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';
 console.log('GROQ_API_KEY loaded in SchemaRAGChatbox:', GROQ_API_KEY);
 
 // Import YFinance handler
@@ -614,8 +615,25 @@ Details:
           queryDetails: queryDetails
         };
         
-        // Format the YFinance response using the same LLM formatter
-        formattedResponse = await formatResponseWithLLM(query, response, "yfinance");
+        // Prefer backend LLM output if available
+        let backendLLMOutput = null;
+        if (
+          response &&
+          response.content &&
+          typeof response.content === 'object'
+        ) {
+          const tickerKeys = Object.keys(response.content);
+          if (tickerKeys.length > 0) {
+            const firstTicker = tickerKeys[0];
+            if (
+              response.content[firstTicker] &&
+              response.content[firstTicker].llm_output
+            ) {
+              backendLLMOutput = response.content[firstTicker].llm_output;
+            }
+          }
+        }
+        formattedResponse = backendLLMOutput || (await formatResponseWithLLM(query, response, "yfinance"));
         
         // Extract charts from response if available
         if (response.charts) {

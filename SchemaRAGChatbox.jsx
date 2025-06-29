@@ -160,7 +160,7 @@ export const SchemaRAGChatbox = ({
 
     return (
       <View key={message.id} style={[styles.message, messageStyle]}>
-        <Text style={textStyle}>
+        <Text style={textStyle} selectable={true}>
           {message.content}
         </Text>
         {/* Render charts if available */}

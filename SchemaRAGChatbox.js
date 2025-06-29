@@ -700,6 +700,8 @@ Details:
             isLoading={isLoading}
             onClose={onClose} // onClose is already passed
             keyboardOffset={effectiveKeyboardOffset} // Pass the calculated offset
+            // --- Make all message text selectable ---
+            textProps={{ selectable: true }}
           />
         </Animated.View>
       </GestureDetector>

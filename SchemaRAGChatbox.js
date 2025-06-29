@@ -36,7 +36,6 @@ import { SchemaRAGChatbox as SchemaRAGChatboxUI } from './SchemaRAGChatbox.jsx';
 import { getDynamicAlphaVantageResponse, runAlphaVantagePipeline } from './services/alphaVantageLLMService.js'; // Corrected path
 
 //import { GROQ_API_KEY } from '@env';
-const GROQ_API_KEY='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';
 console.log('GROQ_API_KEY loaded in SchemaRAGChatbox:', GROQ_API_KEY);
 
 // Import YFinance handler

@@ -6,12 +6,12 @@ class YFinanceHandler {
         // Set default server URL
         //this.serverUrl = 'REACT_APP_API_BASE_URL';
         const BASE_URL = 'https://t1rsk0igv1.execute-api.us-east-1.amazonaws.com/prod';
-        //const BASE_URL = 'http://localhost:5002';
+        //const BASE_URL = 'http://localhost:8000';
         //const BASE_URL = 'http://127.0.0.1:8000';
         this.serverUrl = BASE_URL;
         // Override for Android emulator
         if (Platform.OS === 'android') {
-            this.serverUrl = 'BASE_URL';
+            this.serverUrl = BASE_URL;
         }
         
         this.isProcessing = false;
@@ -54,8 +54,21 @@ class YFinanceHandler {
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to analyze stock');
+                let errorMsg = 'Failed to analyze stock';
+                try {
+                    const errorData = await response.json();
+                    if (errorData && errorData.error) {
+                        errorMsg = errorData.error;
+                    }
+                } catch (jsonErr) {
+                    try {
+                        const errorText = await response.text();
+                        if (errorText) errorMsg = errorText;
+                    } catch (textErr) {
+                        // Ignore, fallback to generic
+                    }
+                }
+                throw new Error(errorMsg);
             }
 
             const data = await response.json();

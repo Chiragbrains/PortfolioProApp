@@ -2,166 +2,50 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
   StyleSheet,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Dimensions,
   Animated,
+  Dimensions,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSupabaseConfig } from './SupabaseConfigContext';
-import { 
-  findSimilarSchemaContexts, 
-  generateSchemaEmbedding, 
-  initializeSchemaEmbeddings 
-} from './services/embeddingService';
 
 // --- Langchain Imports ---
 import { ChatGroq } from "@langchain/groq";
 import { PromptTemplate } from "@langchain/core/prompts";
-import { StringOutputParser, JsonOutputParser } from "@langchain/core/output_parsers";
-import { 
-  RunnableSequence, 
-  RunnablePassthrough, 
-  RunnableLambda 
-} from "@langchain/core/runnables";
+import { JsonOutputParser } from "@langchain/core/output_parsers";
+import { RunnableSequence, RunnablePassthrough, RunnableLambda } from "@langchain/core/runnables";
 
-// Import the JSX UI component
-import { SchemaRAGChatbox as SchemaRAGChatboxUI } from './SchemaRAGChatbox.jsx';
-import { getDynamicAlphaVantageResponse, runAlphaVantagePipeline } from './services/alphaVantageLLMService.js'; // Corrected path
-
-import { GROQ_API_KEY } from '@env';
-console.log('GROQ_API_KEY loaded in SchemaRAGChatbox:', GROQ_API_KEY);
-
-// Import YFinance handler
+// --- Service & UI Imports ---
+import { findSimilarSchemaContexts, initializeSchemaEmbeddings } from './services/embeddingService';
+import { SchemaRAGChatboxUI } from './SchemaRAGChatbox.jsx';
 import YFinanceHandler from './yfinance_handler.js';
+import { GROQ_API_KEY } from '@env';
 
-// BAD (because yfinance_handler is now Python and on a different server)
-//import { YFinanceHandler } from './backend/yfinance_analyzer/integration/yfinance_handler.js';
-
+// --- Constants ---
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const PANEL_TOTAL_HEIGHT = SCREEN_HEIGHT * 1;
-const MINIMIZED_PANEL_HEIGHT = SCREEN_HEIGHT * 0.57; // Reduced height to ensure input field is visible
+const MINIMIZED_PANEL_HEIGHT = SCREEN_HEIGHT * 0.57;
 
-const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => { // Added navBarHeight prop
-  // State management
+const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => {
+  // --- State and Refs ---
   const [messages, setMessages] = useState([
     { 
-      id: `welcome-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `welcome-${Date.now()}`,
       role: 'assistant', 
-      content: 'Hello! I can help analyze your portfolio using enhanced schema understanding. Ask me about your holdings, performance, or any portfolio-related questions.',
-      mode: 'rag'
+      content: 'Hello! Ask me about your portfolio or general market data.',
+      renderInstructions: [],
     }
   ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { supabaseClient } = useSupabaseConfig();
   
-  // Animation state
-  const [isMinimized, setIsMinimized] = useState(false);
   const translateY = useRef(new Animated.Value(0)).current;
   const dragStartTranslateY = useRef(0);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const yfinanceHandler = useRef(new YFinanceHandler()).current;
 
-  // Calculate the effective keyboard offset based on whether the chatbox is minimized
-  // When minimized, the main app's nav bar is visible, so we need to offset by its height.
-  // When expanded, the main app's nav bar is hidden, so the offset is 0.
-  const effectiveKeyboardOffset = isMinimized ? navBarHeight : 0;
-
-  // Gesture handler for dragging
-  const dragGesture = Gesture.Pan()    
-    .onStart(() => {
-      dragStartTranslateY.current = translateY._value;
-    })
-    .onUpdate((event) => {
-      let newY = dragStartTranslateY.current + event.translationY;
-      newY = Math.max(0, newY);
-      newY = Math.min(newY, PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT);
-      translateY.setValue(newY);
-    })
-    .onEnd((event) => {
-      const targetExpandedY = 0;
-      const targetMinimizedY = PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT;
-      let newIsMinimizedState = isMinimized;
-      
-      if (!isMinimized) {
-        if (event.translationY > (PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT) / 2 || event.velocityY > 500) {
-          Animated.spring(translateY, {
-            toValue: targetMinimizedY,
-            useNativeDriver: true,
-            tension: 100,
-            friction: 10,
-          }).start();
-          newIsMinimizedState = true;
-        } else {
-          Animated.spring(translateY, {
-            toValue: targetExpandedY,
-            useNativeDriver: true,
-            tension: 100,
-            friction: 10,
-          }).start();
-          // newIsMinimizedState remains false
-        }
-      } else {
-        if (event.translationY < -(PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT) / 3 || event.velocityY < -500) {
-          Animated.spring(translateY, {
-            toValue: targetExpandedY,
-            useNativeDriver: true,
-            tension: 100,
-            friction: 10,
-          }).start();
-          newIsMinimizedState = false;
-        } else {
-          Animated.spring(translateY, {
-            toValue: targetMinimizedY,
-            useNativeDriver: true,
-            tension: 100,
-            friction: 8,
-          }).start();
-          // newIsMinimizedState remains true
-        }
-      }
-
-      if (isMinimized !== newIsMinimizedState) {
-        setIsMinimized(newIsMinimizedState);
-        onMinimizeChange?.(newIsMinimizedState); // Call the callback if it exists
-      }
-
-    });
-
-  // Initialize schema embeddings if needed
-  useEffect(() => {
-    const initializeIfNeeded = async () => {
-      try {
-        const { data, error } = await supabaseClient
-          .from('portfolio_context_embeddings')
-          .select('id')
-          .limit(1);
-
-        if (error) throw error;
-
-        if (!data || data.length === 0) {
-          console.log('No schema contexts found. Initializing...');
-          setIsLoading(true);
-          await initializeSchemaEmbeddings(supabaseClient);
-          setIsLoading(false);
-          console.log('Schema contexts initialized successfully');
-        }
-      } catch (error) {
-        console.error('Error checking/initializing schema contexts:', error);
-      }
-    };
-
-    if (supabaseClient) {
-      initializeIfNeeded();
-    }
-  }, [supabaseClient]);
-
-  // LLM instances
+  // --- LLM Instances ---
   const llmEntityExtraction = new ChatGroq({
     apiKey: GROQ_API_KEY,
     model: "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -174,124 +58,76 @@ const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => { // A
     temperature: 0.1,
   });
 
-  // Initialize YFinance handler
-  const yfinanceHandler = useRef(new YFinanceHandler()).current;
-  
-  // Cleanup on unmount
+  // --- Effects ---
   useEffect(() => {
-    return () => {
-      yfinanceHandler.cleanup();
+    const initializeIfNeeded = async () => {
+      if (!supabaseClient) return;
+      try {
+        const { data, error } = await supabaseClient.from('portfolio_context_embeddings').select('id').limit(1);
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+          console.log('No schema contexts found. Initializing...');
+          setIsLoading(true);
+          setMessages(prev => [...prev, { id: `init-${Date.now()}`, role: 'assistant', content: 'Setting up portfolio connection for the first time...', renderInstructions: [] }]);
+          await initializeSchemaEmbeddings(supabaseClient);
+          setIsLoading(false);
+          console.log('Schema contexts initialized successfully');
+          setMessages(prev => [...prev, { id: `init-done-${Date.now()}`, role: 'assistant', content: 'Connection ready. You can now ask about your portfolio.', renderInstructions: [] }]);
+        }
+      } catch (error) {
+        console.error('Error checking/initializing schema contexts:', error);
+        setMessages(prev => [...prev, { id: `init-error-${Date.now()}`, role: 'assistant', content: `Error setting up portfolio connection: ${error.message}`, renderInstructions: [] }]);
+        setIsLoading(false);
+      }
     };
-  }, []);
+    initializeIfNeeded();
+  }, [supabaseClient]);
 
-  // Extract and resolve ticker from user query
+  // --- Core RAG Pipeline Functions (Using User-Provided Prompts) ---
+
   const determineQuerySourceAndEntities = async (userQuery) => {
-    console.log('[SchemaRAGChatbox] determineQuerySourceAndEntities: START for query -', userQuery);
+    // Using user-provided prompt #1
+    const systemPrompt = `You are an expert query router for a financial chatbot. Your task is to analyze the user's question and determine the correct data source.
+
+There are two data sources:
+1.  **"portfolio_db"**: Use for questions about the user's PERSONAL holdings. These queries often use possessive words like "my", "I", "mine", or ask about specific accounts.
+2.  **"yfinance"**: Use for GENERAL market data about a stock or the market as a whole. These are impersonal questions.
+
+**CRITICAL INSTRUCTION:** The user's phrasing is the most important clue.
+
+**Examples:**
+- "how many apple shares do I have?" -> **"portfolio_db"** (The user is asking about *their* shares)
+- "what is the price of apple stock?" -> **"yfinance"** (A general question about the market price)
+- "show my portfolio" -> **"portfolio_db"**
+- "get the latest news for MSFT" -> **"yfinance"**
+- "what is the total value of my main account?" -> **"portfolio_db"**
+- "what is the market cap of Tesla?" -> **"yfinance"**
+
+Now, analyze the following user query and respond ONLY with a JSON object in the format:
+{ "dataSource": "portfolio_db" | "yfinance", "entityInfo": { ... } }`;
     
-    const systemPrompt = `You are an AI assistant specialized in financial queries. Your primary task is to determine the data source required to answer the user's question and extract relevant entities.
-Data Sources:
-1. "portfolio_db": Use this if the query is about the user's own portfolio holdings, performance, transaction history, stock by accounts, account values, or anything that would typically be stored in their personal investment database.
-2. "yfinance": Use this if the query is about general market data, real-time stock prices, company overviews, news, financial metrics (earnings, P/E ratio, beta, market cap, etc.), or any stock-related information that is NOT specific to the user's personal holdings.
-   If the query does not clearly fit "portfolio_db", assume it is for "yfinance".
-
-Entity Extraction:
-- If a company name is found (e.g., "Apple", "Microsoft Corp"), try to map it to its common stock ticker (e.g., "AAPL", "MSFT").
-- If a ticker symbol is directly mentioned, use that.
-- For YFinance, also identify if the query implies a specific type of data (e.g., "earnings", "beta", "pe_ratio", "market_cap", "price", "overview", "news").
-Respond ONLY with a JSON object in the following format:
-{
-  "dataSource": "portfolio_db" | "yfinance",
-  "entityInfo": { // Present if a specific company/ticker is relevant
-    "type": "ticker_identified" | "company_name_unresolved" | "general_query_entity", // 'general_query_entity' if dataSource is portfolio_db but no specific ticker
-    "ticker": "TICKER_SYMBOL_OR_NULL", // e.g., "AAPL"
-    "original_mention": "USER_MENTION_OR_NULL", // e.g., "Apple"
-    "name": "COMPANY_NAME_OR_NULL" // e.g., "XYZ Corp" if unresolved
-  },
-  "yfinanceQueryType": "quarterly_earnings" | "earnings" | "beta" | "pe_ratio" | "market_cap" | "price" | "overview" | "news" | "general_market_info" | null // if dataSource is 'yfinance'
-}
-
-IMPORTANT: Return ONLY the JSON object, no additional text, markdown, or explanations.`;
-
+    const llmResponse = await llmEntityExtraction.invoke([{ type: "system", content: systemPrompt }, { type: "human", content: userQuery }]);
     try {
-        const llmResponse = await llmEntityExtraction.invoke([
-            { type: "system", content: systemPrompt },
-            { type: "human", content: userQuery },
-        ]);
-        
-        let rawContent = llmResponse.content.trim();
-        console.log('[SchemaRAGChatbox] Raw LLM response:', rawContent);
-
-        // Remove any markdown code block fences if present
-        const markdownMatch = rawContent.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
-        if (markdownMatch && markdownMatch[1]) {
-            rawContent = markdownMatch[1].trim();
-        }
-
-        // Remove any text after the last closing brace
-        const lastBraceIndex = rawContent.lastIndexOf('}');
-        if (lastBraceIndex !== -1) {
-            rawContent = rawContent.substring(0, lastBraceIndex + 1);
-        }
-
-        console.log('[SchemaRAGChatbox] Cleaned content for parsing:', rawContent);
-
-        try {
-            const parsedContent = JSON.parse(rawContent);
-            
-            // Validate the parsed content has required fields
-            if (!parsedContent.dataSource) {
-                throw new Error('Missing required field: dataSource');
-            }
-
-            // Ensure entityInfo is present and has required fields if it exists
-            if (parsedContent.entityInfo) {
-                if (!parsedContent.entityInfo.type) {
-                    throw new Error('Missing required field: entityInfo.type');
-                }
-            }
-
-            console.log('[SchemaRAGChatbox] Successfully parsed and validated response:', parsedContent);
-            return parsedContent;
-        } catch (parseError) {
-            console.error('[SchemaRAGChatbox] JSON parse error:', parseError);
-            console.error('[SchemaRAGChatbox] Content that failed to parse:', rawContent);
-            throw new Error(`Failed to parse LLM response as JSON: ${parseError.message}`);
-        }
+        const jsonMatch = llmResponse.content.trim().match(/{[\s\S]*}/);
+        if (jsonMatch && jsonMatch[0]) return JSON.parse(jsonMatch[0]);
+        throw new Error('No valid JSON object found in LLM response.');
     } catch (error) {
-        console.error('[SchemaRAGChatbox] Error in determineQuerySourceAndEntities:', error);
-        // Return a safe default that will route to YFinance
-        return { 
-            dataSource: "yfinance", 
-            entityInfo: { type: "general_query_entity" }, 
-            yfinanceQueryType: "general_market_info",
-            error: error.message,
-            reasoning: "Error during source determination, defaulting to YFinance."
-        };
+        console.error("Error determining query source, defaulting to yfinance:", error);
+        return { dataSource: "yfinance", entityInfo: {} };
     }
   };
 
-  // Generate SQL from context and entity info
   const generateSQLFromContext = async (userQuery, schemaContexts, queryDetails) => {
-    try {
-      const contextText = schemaContexts
-        .map(ctx => `${ctx.source_type.toUpperCase()}: ${ctx.content}`)
-        .join('\n\n');
-
-      let entityInstruction = "";
-      if (queryDetails?.entityInfo?.type === 'ticker_identified' && queryDetails.entityInfo.ticker) {
-        entityInstruction = `IMPORTANT_TICKER_DIRECTIVE: The specific stock ticker symbol to use for this query is '${queryDetails.entityInfo.ticker}'. You MUST use this exact string in any SQL condition involving the ticker. Do NOT use "${queryDetails.entityInfo.original_mention}" or any ticker derived from the user's question text. Use ONLY '${queryDetails.entityInfo.ticker}'.`;
-      } else if (queryDetails?.entityInfo?.type === 'company_name_unresolved' && queryDetails.entityInfo.name && queryDetails.entityInfo.original_mention) {
-        entityInstruction = `USER_MENTIONED_COMPANY_NAME: The user's query mentions the company name: "${queryDetails.entityInfo.name}" (originally mentioned as: "${queryDetails.entityInfo.original_mention}"). For this query, you should prioritize matching against a 'company_name' column if available in the schema, using an ILIKE comparison. For example, if the user mentioned "Example Corp", your SQL might include \`WHERE company_name ILIKE '%Example Corp%'\`. If a ticker can also be inferred and is available, you might use that as well.`;
-      }
-
+    const contextText = schemaContexts.map(ctx => `${ctx.source_type.toUpperCase()}: ${ctx.content}`).join('\n\n');
       const systemPromptContent = `You are a PostgreSQL expert. Generate precise SQL SELECT queries based on schema and natural language questions. Always use ILIKE for case-insensitive text matching in WHERE clauses. Return only the SQL query without any explanations.`;
       
+    // Using user-provided prompt #2
       const userPromptContent = `Given the following database schema information:
 ${contextText}
 
-You are an expert SQL generator. Your task is to translate natural language questions into SQL SELECT queries.
+You are an expert SQL generator with 40 years of experience. Your task is to translate natural language questions into SQL SELECT queries.
 Generate a PostgreSQL SELECT query to answer this question: "${userQuery}"
-${entityInstruction}
 
 Requirements:
 1. Use ONLY the tables and columns defined in the schema information provided above.
@@ -377,331 +213,204 @@ Example formats:
 
 Your SQL query:`;
 
-
-      const llmResponse = await llmSqlGeneration.invoke([
-        { type: "system", content: systemPromptContent },
-        { type: "human", content: userPromptContent }
-      ]);
-      
-      let sql = llmResponse.content.trim();
-      console.log('Raw SQL from LLM (before cleaning):', sql);
-
-      // Clean markdown formatting if present
-      const markdownMatch = sql.match(/^```(?:sql)?\s*([\s\S]*?)\s*```$/);
-      if (markdownMatch && markdownMatch[1]) {
-        sql = markdownMatch[1].trim();
-      }
-      
-      console.log('Extracted SQL before validation:', sql);
-
-      // Basic validation
-      const lowerSql = sql.toLowerCase();
-      if (!lowerSql.startsWith('select') && !lowerSql.startsWith('with')) {
-        throw new Error(`Generated SQL must start with SELECT or WITH. Got: ${sql}`);
-      }
-      
-      return sql;
-    } catch (error) {
-      console.error('Error generating SQL:', error);
-      throw error;
+    const llmResponse = await llmSqlGeneration.invoke([{ type: "system", content: systemPromptContent }, { type: "human", content: userPromptContent }]);
+    const sql = llmResponse.content.trim().replace(/```sql|```/g, '').replace(/;$/, '');
+    
+    if (!sql.toLowerCase().startsWith('select') && !sql.toLowerCase().startsWith('with')) {
+        throw new Error('Generated response did not contain a valid SELECT or WITH statement.');
     }
+    console.log('Generated SQL Query:', sql);
+    return sql;
   };
 
-  // Format response using LLM based on data source
-  const formatResponseWithLLM = async (query, data, dataSource) => {
-    try {
-      const systemContent = dataSource === "portfolio_db" 
-        ? `You are a financial analyst assistant specializing in portfolio analysis. Your task is to provide clear, concise, and natural language explanations of portfolio data. Follow these guidelines:
-1. Be direct and concise - get to the point quickly
-2. Use bullet points for multiple items
-3. Format numbers appropriately (currency with $ and commas, percentages with %)
-4. Group related information together
-5. Use clear section headers
-6. Avoid technical jargon unless necessary
-7. Keep the response focused on answering the user's specific question
-8. For portfolio data, always include:
-   - Total value of relevant positions
-   - Performance metrics (gains/losses)
-   - Position breakdowns
-   - Account-specific information when relevant
-9. If charts are available in the data, mention them in your response with the format:
-   [CHART:chart_type] where chart_type is one of: technical, candlestick, performance`
-        : `You are a financial analyst assistant specializing in market data analysis. Your task is to provide clear, concise, and natural language explanations of stock data. Follow these guidelines:
-1. Be direct and concise - get to the point quickly
-2. Use bullet points for multiple items
-3. Format numbers appropriately (currency with $ and commas, percentages with %)
-4. Group related information together
-5. Use clear section headers
-6. Avoid technical jargon unless necessary
-7. Keep the response focused on answering the user's specific question
-8. For market data, always include:
-   - Current price and price changes
-   - Key technical indicators
-   - Market metrics (P/E, volume, etc.)
-   - Trading signals or recommendations
-9. If charts are available in the data, mention them in your response with the format:
-   [CHART:chart_type] where chart_type is one of: technical, candlestick, performance`;
-
-      const userContent = dataSource === "portfolio_db"
-        ? `Given the user question "${query}" and these database results (showing up to 10 entries):
-${JSON.stringify(Array.isArray(data) ? data.slice(0, 10) : data, null, 2)}
-${Array.isArray(data) && data.length > 10 ? `\n(Showing 10 out of ${data.length} total results)\n` : ''}
-
-Provide a natural language response that:
-1. Directly answers the user's question in the first sentence
-2. Uses bullet points for multiple items
-3. Groups related information together
-4. Formats numbers appropriately
-5. Uses clear section headers
-6. Keeps the response concise and focused
-7. If charts are available, include them in your response using the [CHART:type] format
-
-Example format:
-[Direct answer to question]
-
-Key Points:
-• [Point 1]
-• [Point 2]
-• [Point 3]
-
-Details:
-[Additional relevant information]
-
-The SQL query used was: ${data.sqlQuery || 'N/A'}`
-        : `Given the user question "${query}" and this stock analysis:
-${data.content}
-
-Provide a natural language response that:
-1. Directly answers the user's question in the first sentence
-2. Uses bullet points for multiple items
-3. Groups related information together
-4. Formats numbers appropriately
-5. Uses clear section headers
-6. Keeps the response concise and focused
-7. If charts are available, include them in your response using the [CHART:type] format
-
-Example format:
-[Direct answer to question]
-
-Key Points:
-• [Point 1]
-• [Point 2]
-• [Point 3]
-
-Details:
-[Additional relevant information]`;
-
-      const llmResponse = await llmSqlGeneration.invoke([
-        { type: "system", content: systemContent },
-        { type: "human", content: userContent }
-      ]);
-
-      return llmResponse.content.trim();
-    } catch (error) {
-      console.error('Error formatting response:', error);
-      throw error;
-    }
-  };
-
-  // Execute Supabase query
   const executeSupabaseQuery = async (sqlQuery) => {
-    const { data, error } = await supabaseClient.rpc('execute_portfolio_query', { 
-      query_text: sqlQuery 
-    });
+    const { data, error } = await supabaseClient.rpc('execute_portfolio_query', { query_text: sqlQuery });
     if (error) throw error;
     return data;
   };
 
-  // Handle message sending with RAG pipeline
+  const generateFinalResponse = async ({ query, rawData }) => {
+    const formattingPrompt = PromptTemplate.fromTemplate(`
+      You are an expert financial UI developer. Your task is to process raw JSON data from a financial API and generate a user-friendly response for a mobile app.
+      
+      Based on the user's query and the provided Raw Data, create a JSON object with two keys: "summary" and "render_instructions".
+      
+      **User's Query:** "{query}"
+      **Raw Data:** {rawData}
+      
+      ---
+      **COMPONENT RULES:**
+      - **Use "key_value_pairs"** for single objects (like company info).
+      - **Use "table"** for lists of objects (like holdings or price history). Headers should be derived from object keys.
+      - **Use "bar_chart"** for categorical or time-based breakdowns (like quarterly revenue).
+      - **Use "line_chart"** for continuous time-series data (like historical portfolio value).
+      
+      ---
+      **CRITICAL INSTRUCTIONS FOR CHARTING:**
+      If the user asks for a chart or the data clearly represents a time series (like quarterly revenue), you MUST create the correct chart component.
+      - The 'data' array for charts must be an array of objects, e.g., [{{ "label": "Q1", "value": 100 }}].
+      - You MUST extract the correct date/label and the corresponding numerical value from the Raw Data.
+      
+      **Example of transforming backend data to a chart:**
+      If the Raw Data is \`{{ "get_quarterly_income_stmt": {{ "2024-12-31": {{"Total Revenue": 150000}}, "2024-09-30": {{"Total Revenue": 140000}}}} }}\`, your output should be:
+      \`\`\`json
+      {{
+        "summary": "Here is a bar chart of the quarterly revenue.",
+        "render_instructions": [
+          {{
+            "component": "bar_chart",
+            "props": {{
+              "title": "Quarterly Revenue",
+              "data": [
+                {{ "label": "2024-12-31", "value": 150000 }},
+                {{ "label": "2024-09-30", "value": 140000 }}
+              ],
+              "options": {{ "xKey": "label", "yKey": "value" }}
+            }}
+          }}
+        ]
+      }}
+      \`\`\`
+      
+      Now, analyze the query and data, and respond ONLY with a single, valid JSON object.
+      `);
+      
+          const finalChain = RunnableSequence.from([
+            formattingPrompt,
+            llmSqlGeneration, // Assuming this is your text-generation LLM instance
+            new JsonOutputParser()
+          ]);
+      
+          try {
+            return await finalChain.invoke({ query, rawData: JSON.stringify(rawData, null, 2) });
+          } catch (error) {
+            console.error("Error generating final formatted response:", error);
+            return {
+              summary: "I found the data, but had trouble formatting it. Here is the raw data.",
+              render_instructions: [{ component: 'key_value_pairs', props: { title: 'Raw Data', data: rawData } }]
+            };
+          }
+        };
+
+  // --- Main Handler ---
   const handleSend = async () => {
     if (!inputText.trim() || isLoading) return;
-
     const query = inputText.trim();
     setInputText('');
     setIsLoading(true);
 
-    // Add user message immediately
-    const userMessage = {
-      id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      role: 'user',
-      content: query,
-      mode: 'rag'
-    };
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: query }]);
 
     try {
-      // Step 1: Determine query source and extract entities
       const queryDetails = await determineQuerySourceAndEntities(query);
-
-      let formattedResponse;
-      let charts = [];
-      let rawData = null;
+      let rawData, charts = null;
 
       if (queryDetails.dataSource === "portfolio_db") {
-        console.log('[SchemaRAGChatbox] Query identified for Portfolio DB. Running RAG chain...');
-        // Create the RAG processing chain for portfolio data
+        console.log("Routing to Portfolio DB using original chain logic...");
         const portfolioRagChain = RunnableSequence.from([
-          // Pass initial query and pre-determined queryDetails
           RunnablePassthrough.assign({
-            queryDetails: () => queryDetails,
-            similarContexts: new RunnableLambda({ 
-              func: async (input) => findSimilarSchemaContexts(supabaseClient, input.query) 
-            }).withConfig({ runName: "SchemaContextRetrieval" }),
+            similarContexts: new RunnableLambda({ func: (input) => findSimilarSchemaContexts(supabaseClient, input.query) })
           }),
-          
-          // Validate contexts exist
-          new RunnableLambda({
-            func: async (input) => {
-              if (!input.similarContexts || input.similarContexts.length === 0) {
-                throw new Error('No relevant schema context found for your portfolio query.');
-              }
+          (input) => {
+              if (!input.similarContexts?.length) throw new Error('No relevant schema context found for your portfolio query.');
               return input;
-            }
-          }).withConfig({ runName: "ContextValidation" }),
-          
-          // Generate SQL
+          },
           RunnablePassthrough.assign({
-            generatedSql: new RunnableLambda({ 
-              func: async (input) => generateSQLFromContext(input.query, input.similarContexts, input.queryDetails) 
-            }).withConfig({ runName: "SQLGeneration" }),
+            generatedSql: new RunnableLambda({ func: (input) => generateSQLFromContext(input.query, input.similarContexts, queryDetails) })
           }),
-          
-          // Format SQL for RPC execution
-          new RunnableLambda({
-            func: (input) => {
-              let baseSql = input.generatedSql.replace(/;$/, '');
-              const finalSqlForRpc = `SELECT row_to_json(t.*) FROM (${baseSql}) t`;
-              console.log('Final SQL for RPC:', finalSqlForRpc);
-              return { ...input, baseSql, finalSqlForRpc };
-            }
-          }).withConfig({ runName: "SQLFormattingForRPC" }),
-          
-          // Execute query
-          RunnablePassthrough.assign({
-            queryResults: new RunnableLambda({ 
-              func: async (input) => executeSupabaseQuery(input.finalSqlForRpc) 
-            }).withConfig({ runName: "SQLExecution" }),
-          }),
-          
-          // Format results using LLM
-          new RunnableLambda({ 
-            func: async (input) => {
-              rawData = {
-                sql: input.baseSql,
-                results: input.queryResults
-              };
-              return formatResponseWithLLM(input.query, {
-                ...input.queryResults,
-                sqlQuery: input.baseSql
-              }, "portfolio_db");
-            }
-          }).withConfig({ runName: "NaturalLanguageFormatting" }),
+          new RunnableLambda({ func: async ({ generatedSql }) => {
+              // Patch: Remove trailing semicolon, wrap as SELECT row_to_json(t.*) FROM (<sql>) t
+              const baseSql = generatedSql.replace(/;$/, '');
+              const finalSqlQuery = `SELECT row_to_json(t.*) FROM (${baseSql}) t`;
+              const { data, error } = await supabaseClient.rpc('execute_portfolio_query', { query_text: finalSqlQuery });
+              if (error) throw error;
+              if (!Array.isArray(data) || data.length === 0) {
+                throw new Error('No data found for your portfolio query. Please check your portfolio or try a different question.');
+              }
+              // Patch: Return data as-is (do not map item.row_to_json)
+              return data;
+          }})
         ]);
-        formattedResponse = await portfolioRagChain.invoke({ query });
-
+        rawData = await portfolioRagChain.invoke({ query, queryDetails });
       } else {
-        // Use YFinance instead of Alpha Vantage
-        console.log('[SchemaRAGChatbox] Query identified for YFinance. Processing...');
-        const response = await yfinanceHandler.processQuery(query);
-        
-        if (response.type === 'error') {
-          throw new Error(response.error || response.content);
+        console.log("Routing to YFinance...");
+        const yfinanceResponse = await yfinanceHandler.processQuery(query);
+        if (yfinanceResponse.type === 'error' || !yfinanceResponse.content) {
+          throw new Error(yfinanceResponse.error || 'No data found for your yfinance query. Please try again later.');
         }
-        
-        // Store raw data
-        rawData = {
-          response: response,
-          queryDetails: queryDetails
-        };
-        
-        // Prefer backend LLM output if available
-        let backendLLMOutput = null;
-        if (
-          response &&
-          response.content &&
-          typeof response.content === 'object'
-        ) {
-          const tickerKeys = Object.keys(response.content);
-          if (tickerKeys.length > 0) {
-            const firstTicker = tickerKeys[0];
-            if (
-              response.content[firstTicker] &&
-              response.content[firstTicker].llm_output
-            ) {
-              backendLLMOutput = response.content[firstTicker].llm_output;
-            }
-          }
-        }
-        formattedResponse = backendLLMOutput || (await formatResponseWithLLM(query, response, "yfinance"));
-        
-        // Extract charts from response if available
-        if (response.charts) {
-          charts = Object.entries(response.charts).map(([type, chartData]) => ({
-            type,
-            data: chartData
-          }));
-        }
+        rawData = yfinanceResponse; // Pass the entire backend response for raw data (logs + llm output)
+        charts = yfinanceResponse.charts || null;
       }
 
-      // Process the formatted response to extract chart references
-      // const chartRegex = /\[CHART:(\w+)\]/g;
-      // const chartMatches = [...formattedResponse.matchAll(chartRegex)];
-      
-      // Remove chart references from the text (DISABLED: show full LLM output)
-      // const cleanResponse = formattedResponse.replace(chartRegex, '').trim();
+      const finalResponse = await generateFinalResponse({ query, rawData });
 
-      const assistantMessage = {
-        id: `assistant-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      setMessages(prev => [...prev, {
+        id: `assistant-${Date.now()}`,
         role: 'assistant',
-        content: formattedResponse, // Use full LLM output
-        mode: 'rag',
-        charts: charts.length > 0 ? charts : undefined,
-        rawData: rawData
-      };
-      setMessages(prev => [...prev, assistantMessage]);
+        content: finalResponse.summary,
+        renderInstructions: finalResponse.render_instructions,
+        rawData,
+        charts,
+      }]);
       
     } catch (error) {
-      console.error('Error in message handling:', error);
-      let errorMessage = 'Sorry, there was an error processing your request. Please try again.';
-      if (error.message.includes('No relevant schema context found')) {
-        errorMessage = "I couldn't find relevant information in your portfolio for that query. Try asking about general market data if that's what you intended.";
-      } else if (error.message.includes('Failed to process query')) {
-        errorMessage = "I had trouble understanding how to fetch that market data. Could you try rephrasing?";
-      }
+      console.error('Error in message handling pipeline:', error);
       setMessages(prev => [...prev, {
         id: `error-${Date.now()}`,
         role: 'assistant',
-        content: errorMessage,
-        mode: 'rag'
+        content: `Sorry, an error occurred: ${error.message}`,
+        renderInstructions: [],
       }]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Render the draggable panel with UI component
+  // --- Animation & Gesture Logic ---
+  const dragGesture = Gesture.Pan()
+    .onStart(() => { dragStartTranslateY.current = translateY._value; })
+    .onUpdate((event) => {
+        let newY = dragStartTranslateY.current + event.translationY;
+        newY = Math.max(0, Math.min(newY, PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT));
+        translateY.setValue(newY);
+    })
+    .onEnd((event) => {
+        const targetExpandedY = 0;
+        const targetMinimizedY = PANEL_TOTAL_HEIGHT - MINIMIZED_PANEL_HEIGHT;
+        let newIsMinimizedState = isMinimized;
+        if (!isMinimized) {
+            if (event.translationY > 100 || event.velocityY > 500) {
+                Animated.spring(translateY, { toValue: targetMinimizedY, useNativeDriver: true, tension: 100, friction: 10 }).start();
+                newIsMinimizedState = true;
+            } else {
+                Animated.spring(translateY, { toValue: targetExpandedY, useNativeDriver: true, tension: 100, friction: 10 }).start();
+            }
+        } else {
+            if (event.translationY < -100 || event.velocityY < -500) {
+                Animated.spring(translateY, { toValue: targetExpandedY, useNativeDriver: true, tension: 100, friction: 10 }).start();
+                newIsMinimizedState = false;
+            } else {
+                Animated.spring(translateY, { toValue: targetMinimizedY, useNativeDriver: true, tension: 100, friction: 8 }).start();
+            }
+        }
+        if (isMinimized !== newIsMinimizedState) {
+            setIsMinimized(newIsMinimizedState);
+            onMinimizeChange?.(newIsMinimizedState);
+        }
+    });
+
   return (
     <View style={componentStyles.container}>
       <GestureDetector gesture={dragGesture}>
-        <Animated.View
-          style={[
-            componentStyles.draggablePanel,
-            {
-              transform: [{ translateY }],
-              height: isMinimized ? MINIMIZED_PANEL_HEIGHT : PANEL_TOTAL_HEIGHT,
-            },
-          ]}
-        >
+        <Animated.View style={[componentStyles.draggablePanel, { transform: [{ translateY }] }]}>
           <SchemaRAGChatboxUI
             messages={messages}
             inputTextValue={inputText}
             onInputTextChange={setInputText}
             onSendMessagePress={handleSend}
             isLoading={isLoading}
-            onClose={onClose} // onClose is already passed
-            keyboardOffset={effectiveKeyboardOffset} // Pass the calculated offset
-            // --- Make all message text selectable ---
-            textProps={{ selectable: true }}
+            onClose={onClose}
+            keyboardOffset={isMinimized ? navBarHeight : 0}
           />
         </Animated.View>
       </GestureDetector>
@@ -709,19 +418,8 @@ Details:
   );
 };
 
-// Styles for the draggable panel
 const componentStyles = StyleSheet.create({
-  container: {
-    height: PANEL_TOTAL_HEIGHT, 
-    width: '100%',
-    backgroundColor: 'transparent', 
-    pointerEvents: "box-none",
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 1000,
-  },
+  container: { height: PANEL_TOTAL_HEIGHT, width: '100%', position: 'absolute', bottom: 0, zIndex: 1000, pointerEvents: 'box-none' },
   draggablePanel: {
     width: '100%',
     height: PANEL_TOTAL_HEIGHT, 
@@ -729,16 +427,11 @@ const componentStyles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
     overflow: 'hidden',
-    position: 'absolute',
-    bottom: 0,
-    zIndex: 1000,
-    display: 'flex',
-    flexDirection: 'column',
   },
 });
 

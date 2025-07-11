@@ -9,12 +9,17 @@ import * as DocumentPicker from 'expo-document-picker'; // Keep this import
 import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Ionicons } from '@expo/vector-icons';
 import ConnectionErrorModal from './ConnectionErrorModal';
 import Dashboard from './Dashboard';
 import { TrendingUp, BarChart3, BarChart4, BarChartHorizontal, LineChart, PieChart, Users } from 'lucide-react';
 import PortfolioSummary from './PortfolioSummary';
 import Header from './components/Header';
 import SchemaRAGChatbox from './SchemaRAGChatbox';
+import GeneralChatbox from './GeneralChatbox'; // Existing
+import { setupPortfolioSubscription } from './services/portfolioService';
+import { formatTimestamp } from './utils/formatters';
+import HoldingListItem from './components/HoldingListItem';
 
 // --- Import Service Functions ---
 import {
@@ -26,16 +31,6 @@ import {
 // --- Import Components ---
 import AddStockForm from './AddStockForm';
 import { useSupabaseConfig } from './SupabaseConfigContext';
-import GeneralChatbox from './GeneralChatbox'; // Existing
-import { setupPortfolioSubscription } from './services/portfolioService';
-
-// --- Helper Functions ---
-import DashboardSummary from './components/DashboardSummary';
-import HoldingListItem from './components/HoldingListItem';
-import { formatNumber, formatTimestamp } from './utils/formatters';
-
-// --- Import New Components (BottomNavBar is now defined in this file) ---
-// import BottomNavBar from './components/BottomNavBar'; 
 import MenuDrawer from './components/MenuDrawer';
 import ImportConfirmationModal from './components/ImportConfirmationModal';
 import PopupNotification from './components/PopupNotification';

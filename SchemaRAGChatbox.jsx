@@ -1,235 +1,261 @@
-import React, { useState, useRef } from 'react';
+// SchemaRAGChatbox.jsx
+import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   TextInput,
   TouchableOpacity,
-  ScrollView,
   KeyboardAvoidingView,
   Platform,
-  // Animated and useWindowDimensions are not directly used in this UI component anymore
-  // They are used in the parent SchemaRAGChatbox.js for the draggable panel
-  // Dimensions is also not directly used here as screenHeight is imported from scaling.js
-  Animated,
   ActivityIndicator,
-  useWindowDimensions,
-  Dimensions,
-  Image,
   Modal,
+  Linking,
+  Dimensions,
 } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { scaleSize, scaleFont, screenHeight, scaleLayoutValue } from './utils/scaling.js'; // Import new scaleLayoutValue
+// FIX: Import ScrollView from react-native-gesture-handler to resolve passive listener violations
+import { ScrollView } from 'react-native-gesture-handler';
 import Markdown from 'react-native-markdown-display';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
-// const { height: SCREEN_HEIGHT } = Dimensions.get('window'); // Now imported as screenHeight
+// --- Reusable UI Component Renderers ---
 
-// Calculate the effective height of the input area for layout adjustments
-const CALCULATED_INPUT_AREA_HEIGHT = scaleSize(12 + 44 + 12); // padding + input_height + padding
+const KeyValueRenderer = ({ title, data }) => {
+  // Ensure data is a non-empty object
+  if (!data || typeof data !== 'object' || Object.keys(data).length === 0) return null;
 
-export const SchemaRAGChatbox = ({
+  return (
+    <View style={styles.rendererContainer}>
+      <Text style={styles.rendererTitle}>{title}</Text>
+      <View style={styles.kvContainer}>
+        {Object.entries(data).map(([key, value]) => (
+          <View key={key} style={styles.kvRow}>
+            <Text style={styles.kvKey}>{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Text>
+            <Text style={styles.kvValue} selectable={true}>
+              {typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(value)}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+};
+
+const TableRenderer = ({ title, data }) => {
+  // Ensure data has headers and rows
+  if (!data || !Array.isArray(data.headers) || !Array.isArray(data.rows) || data.rows.length === 0) return null;
+
+  return (
+    <View style={styles.rendererContainer}>
+      <Text style={styles.rendererTitle}>{title}</Text>
+      <ScrollView horizontal={true}>
+        <View>
+          <View style={styles.tableHeaderRow}>
+            {data.headers.map((header, index) => (
+              <Text key={index} style={[styles.tableCell, styles.tableHeaderText]}>{header}</Text>
+            ))}
+          </View>
+          {data.rows.map((row, rowIndex) => (
+            <View key={rowIndex} style={[styles.tableBodyRow, rowIndex % 2 === 1 && styles.tableAltRow]}>
+              {row.map((cell, cellIndex) => (
+                <Text key={cellIndex} style={styles.tableCell} selectable={true}>
+                  {typeof cell === 'number' ? cell.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(cell)}
+                </Text>
+              ))}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </View>
+  );
+};
+
+const NewsRenderer = ({ title, data }) => {
+  // Ensure data is a non-empty array
+  if (!Array.isArray(data) || data.length === 0) return null;
+
+  return (
+    <View style={styles.rendererContainer}>
+      <Text style={styles.rendererTitle}>{title}</Text>
+      {data.map((item, index) => (
+        <TouchableOpacity key={index} style={styles.newsCard} onPress={() => item.link && Linking.openURL(item.link)}>
+          <Text style={styles.newsTitle} selectable={true}>{item.title}</Text>
+          {item.publisher && <Text style={styles.newsPublisher}>{item.publisher}</Text>}
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+};
+
+// --- Chart Renderer (Dashboard-style) ---
+const ChartRenderer = ({ chartType, data, options = {} }) => {
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+  const pieChartSize = Math.max(160, Math.min(screenWidth * 0.6, 320));
+  if (!data || !Array.isArray(data) || data.length === 0) return null;
+
+  switch (chartType) {
+    case 'line_chart':
+      return (
+        <ResponsiveContainer width={screenWidth - 40} height={screenHeight * 0.3}>
+          <LineChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
+            <XAxis dataKey={options.xKey || 'label'} stroke="#9ca3af" fontSize={12} tick={{ fill: '#9ca3af' }} />
+            <YAxis hide />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey={options.yKey || 'value'} stroke="#8b5cf6" strokeWidth={2} dot={false} />
+            {options.yKey2 && <Line type="monotone" dataKey={options.yKey2} stroke="#9ca3af" strokeWidth={2} dot={false} strokeDasharray="5 5" />}
+          </LineChart>
+        </ResponsiveContainer>
+      );
+    case 'bar_chart':
+      return (
+        <ResponsiveContainer width={screenWidth - 40} height={screenHeight * 0.3}>
+          <BarChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
+            <XAxis dataKey={options.xKey || 'label'} stroke="#9ca3af" fontSize={12} tick={{ fill: '#9ca3af' }} />
+            <YAxis hide />
+            <Tooltip />
+            <Bar dataKey={options.yKey || 'value'} fill="#8b5cf6" />
+          </BarChart>
+        </ResponsiveContainer>
+      );
+    case 'pie_chart':
+      return (
+        <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+          <ResponsiveContainer width={pieChartSize} height={pieChartSize}>
+            <PieChart>
+              <Pie
+                data={data}
+                cx="50%"
+                cy="50%"
+                outerRadius={pieChartSize / 2 - 10}
+                innerRadius={pieChartSize / 2.8}
+                paddingAngle={5}
+                dataKey={options.yKey || 'value'}
+                nameKey={options.xKey || 'label'}
+              >
+                {data.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color || ['#8b5cf6', '#06b6d4', '#10b981', '#ef4444', '#f59e42'][index % 5]} />
+                ))}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        </View>
+      );
+    default:
+      return <Text style={{ color: 'red' }}>Unsupported chart type: {chartType}</Text>;
+  }
+};
+
+// --- Main Chat UI Component ---
+
+export const SchemaRAGChatboxUI = ({
   messages = [],
   inputTextValue = '',
   onInputTextChange = () => {},
   onSendMessagePress = () => {},
   isLoading = false,
   onClose,
-  keyboardOffset = 0, // Renamed from navBarHeight, now represents the offset for KeyboardAvoidingView
+  keyboardOffset = 0,
 }) => {
   const scrollViewRef = useRef();
-  const [isTextSelected, setIsTextSelected] = useState(false);
   const [selectedRawData, setSelectedRawData] = useState(null);
   const [isRawDataModalVisible, setIsRawDataModalVisible] = useState(false);
 
-  const handleSendMessage = () => {
-    // Now calls the handler passed via props
-    if (inputTextValue.trim() && !isLoading) {
-      onSendMessagePress(inputTextValue);
+  useEffect(() => {
+    // Scroll to bottom when new messages arrive
+    if (messages.length) {
+        setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 150);
     }
-  };
-
-  const scrollToBottom = () => {
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 150); // Slightly increased delay for smoother scroll
-  };
-
-  React.useEffect(() => {
-    scrollToBottom();
   }, [messages]);
-
-  // Dynamic style for messageAreaWrapper to account for navBarHeight and inputArea height
-  const dynamicMessageAreaWrapperStyle = {
-    ...styles.messageAreaWrapper,
-    marginBottom: CALCULATED_INPUT_AREA_HEIGHT, // Input area is at bottom: 0, so only its height is needed
-  };
-
-  const markdownStyles = {
-    body: {
-      color: '#FFFFFF',
-      fontSize: 16,
-      lineHeight: 24,
-    },
-    heading1: {
-      color: '#FFFFFF',
-      fontSize: 24,
-      fontWeight: 'bold',
-      marginTop: 20,
-      marginBottom: 10,
-    },
-    heading2: {
-      color: '#FFFFFF',
-      fontSize: 20,
-      fontWeight: 'bold',
-      marginTop: 15,
-      marginBottom: 8,
-    },
-    heading3: {
-      color: '#FFFFFF',
-      fontSize: 18,
-      fontWeight: 'bold',
-      marginTop: 12,
-      marginBottom: 6,
-    },
-    paragraph: {
-      color: '#FFFFFF',
-      marginBottom: 10,
-    },
-    list_item: {
-      color: '#FFFFFF',
-      marginBottom: 5,
-    },
-    bullet_list: {
-      marginBottom: 10,
-    },
-    ordered_list: {
-      marginBottom: 10,
-    },
-    strong: {
-      color: '#FFFFFF',
-      fontWeight: 'bold',
-    },
-    em: {
-      color: '#FFFFFF',
-      fontStyle: 'italic',
-    },
-    code_inline: {
-      backgroundColor: '#2C2C2E',
-      color: '#FFFFFF',
-      padding: 4,
-      borderRadius: 4,
-    },
-    code_block: {
-      backgroundColor: '#2C2C2E',
-      color: '#FFFFFF',
-      padding: 10,
-      borderRadius: 4,
-      marginVertical: 10,
-    },
-  };
-
-  const handleTextSelectionStart = () => {
-    setIsTextSelected(true);
-  };
-
-  const handleTextSelectionEnd = () => {
-    setIsTextSelected(false);
-  };
 
   const renderRawDataButton = (data) => {
     if (!data) return null;
-    
     return (
       <TouchableOpacity
         style={styles.rawDataButton}
-        onPress={() => {
-          setSelectedRawData(data);
-          setIsRawDataModalVisible(true);
-        }}
+        onPress={() => { setSelectedRawData(data); setIsRawDataModalVisible(true); }}
       >
         <Text style={styles.rawDataButtonText}>View Raw Data</Text>
       </TouchableOpacity>
     );
   };
 
-  const renderMessage = (message) => {
-    const isUser = message.role === 'user';
-    // For bot messages, make them full width; for user, keep as before
-    const messageStyle = isUser ? styles.userMessage : [styles.botMessage, styles.fullWidthBotMessage];
-    const textStyle = isUser ? styles.userText : styles.botText;
+  /**
+   * Renders the content of a single message bubble.
+   * FIX: This function now correctly renders user messages as selectable Text
+   * and assistant messages as selectable Markdown.
+   */
+  const renderMessageContent = (message) => {
+    const { role, content, renderInstructions, rawData } = message;
+    const isUser = role === 'user';
 
     return (
-      <View key={message.id} style={[styles.message, messageStyle]}>
-        <Text style={textStyle} selectable={true}>
-          {message.content}
-        </Text>
-        {/* Render charts if available */}
-        {message.charts && Object.entries(message.charts).map(([key, chart]) => (
-          <View key={`chart-${key}`} style={styles.chartContainer}>
-            <Image
-              source={{ uri: `data:image/png;base64,${chart.data}` }}
-              style={styles.chart}
-              resizeMode="contain"
-              onError={(e) => console.error('Error loading chart:', e.nativeEvent.error)}
-            />
-            <Text style={styles.chartCaption}>
-              {chart.type.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-            </Text>
-          </View>
-        ))}
+        <View style={[styles.message, isUser ? styles.userMessage : styles.botMessage]}>
+        {isUser ? (
+                // User messages are simple, selectable text
+                <Text style={styles.userText} selectable={true}>
+                    {content}
+                </Text>
+            ) : (
+                // Assistant messages have a summary, dynamic components, and a raw data button
+                <>
+                    <Markdown selectable={true} style={markdownStyles}>{content || ''}</Markdown>
+                    {/* Dynamically render UI components based on instructions from the logic layer */}
+                    {Array.isArray(renderInstructions) && renderInstructions.map((instruction, index) => {
+                      const { component, props } = instruction;
+                      switch (component) {
+                        case 'key_value_pairs': return <KeyValueRenderer key={index} {...props} />;
+                        case 'table': return <TableRenderer key={index} {...props} />;
+                        case 'news_list': return <NewsRenderer key={index} {...props} />;
+                        case 'line_chart':
+                        case 'bar_chart':
+                        case 'pie_chart':
+                          return <ChartRenderer key={index} chartType={component} {...props} />;
+                        default: return <Text key={index} style={{color: 'red'}}>Unsupported component: {component}</Text>;
+                      }
+                    })}
 
-        {/* Add raw data button if data is available */}
-        {renderRawDataButton(message.rawData)}
+                    {!isUser && renderRawDataButton(rawData)}
+                </>
+            )}
       </View>
     );
   };
 
   return (
-    // This component is now the direct UI content for the chat.
-    // It's placed inside an Animated.View in SchemaRAGChatbox.js.
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.chatUIContainer} // Use a style that makes it fill its parent and sets background
-      keyboardVerticalOffset={Platform.OS === "ios" ? keyboardOffset : 0} 
+      style={styles.chatUIContainer}
+      keyboardVerticalOffset={keyboardOffset}
     >
       <View style={styles.header}>
-        {/* Drag Handle - now on its own line */}
         <View style={styles.dragHandle} />
-        
-        {/* Row for Title and Close Button */}
         <View style={styles.headerContentRow}>
-          <View style={styles.headerSideSpacer} /> {/* Added for balance */}
-          <Text style={styles.headerTitle}>AI Chatbot</Text>
-          {/* Close Button or placeholder for balance */}
-          {onClose ? (          
+          <Text style={styles.headerTitle}>AI Financial Assistant</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
-          ) : (
-            <View style={styles.closeButtonPlaceholder} />
-          )}
         </View>
       </View>
-      {/* Message Area */}
-      <View style={dynamicMessageAreaWrapperStyle}>
+      
         <ScrollView
           ref={scrollViewRef}
           style={styles.messageArea}
           contentContainerStyle={styles.messageContentContainer}
-          onContentSizeChange={scrollToBottom}
           keyboardShouldPersistTaps="handled"
-          scrollEnabled={true}
-          onScrollBeginDrag={() => {
-            if (isTextSelected) {
-              handleTextSelectionEnd();
-            }
-          }}
-        >
-          {messages.map(renderMessage)}
+      >
+        {messages.map(message => <View key={message.id}>{renderMessageContent(message)}</View>)}
+        {isLoading && (
+            <View style={[styles.message, styles.botMessage]}>
+                <ActivityIndicator color="#A78BFA" />
+            </View>
+        )}
         </ScrollView>
-      </View>
 
-      {/* Raw Data Modal */}
       <Modal
         visible={isRawDataModalVisible}
         transparent={true}
@@ -240,10 +266,7 @@ export const SchemaRAGChatbox = ({
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Raw Data</Text>
-              <TouchableOpacity
-                style={styles.modalCloseButton}
-                onPress={() => setIsRawDataModalVisible(false)}
-              >
+              <TouchableOpacity onPress={() => setIsRawDataModalVisible(false)}>
                 <Text style={styles.modalCloseButtonText}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -256,299 +279,83 @@ export const SchemaRAGChatbox = ({
         </View>
       </Modal>
 
-      {/* Input Area - Apply dynamic scaling */}
-      <View style={[
-        styles.inputArea,
-        {
-          padding: scaleSize(12),
-          //borderTopWidth: scaleSize(1),
-          bottom: 0, // Input area should be at the bottom of its container
-        }
-      ]}>
+      <View style={styles.inputArea}>
         <TextInput
-          style={[
-            styles.input,
-            {
-              borderRadius: scaleSize(20),
-              paddingHorizontal: scaleSize(15),
-              height: scaleSize(44),
-              fontSize: scaleFont(15),
-              borderWidth: 1, // Changed to a fixed tiny value
-            }
-          ]}
+          style={styles.input}
           value={inputTextValue}
           onChangeText={onInputTextChange}
-          placeholder="Ask about your portfolio..."
+          placeholder="Ask a question..."
           placeholderTextColor="#888"
           editable={!isLoading} 
         />
         <TouchableOpacity 
-          style={[
-            styles.sendButton,
-            {
-              borderRadius: scaleSize(22),
-              paddingVertical: scaleSize(10),
-              paddingHorizontal: scaleSize(20),
-              minWidth: scaleSize(80),
-              height: scaleSize(44),
-            },
-            (isLoading || !inputTextValue.trim()) && styles.sendButtonDisabled
-          ]} 
-          onPress={handleSendMessage} 
+          style={[styles.sendButton, (isLoading || !inputTextValue.trim()) && styles.sendButtonDisabled]} 
+          onPress={() => onSendMessagePress(inputTextValue)} 
           disabled={isLoading || !inputTextValue.trim()}
         >
-          {isLoading
-            ? <ActivityIndicator size="small" color="#fff" />
-            : <Text style={[
-                styles.sendButtonText,
-                {
-                  fontSize: scaleFont(16),
-                }
-              ]}>Send</Text>}
+          <Text style={styles.sendButtonText}>Send</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );
 };
 
-const styles = StyleSheet.create({
-  chatUIContainer: {
-    backgroundColor: '#1E1B4B',
-    overflow: 'hidden',
-    flexDirection: 'column',
-    flex: 1,
-    display: 'flex',
-  },
-  header: {
-    flexDirection: 'column', // Stack drag handle and content row
-    alignItems: 'center', // Center drag handle horizontally
-    paddingTop: scaleLayoutValue(8), // Add some padding at the top
-    paddingBottom: scaleLayoutValue(4), // Padding below the title/button row
-    paddingHorizontal: scaleLayoutValue(15), // Use scaleLayoutValue for horizontal padding
-    backgroundColor: '#7C3AED',
-    // Height will be more dynamic, or adjust scaleSize if fixed height is desired e.g. scaleSize(40)
-  },
-  dragHandle: { // Style for the visual drag handle
-    width: 60, // Fixed width for the handle
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)', // Light handle on purple background
-    borderRadius: 2,
-    marginBottom: scaleLayoutValue(6), // Space between handle and title row
-  },
-  headerContentRow: { // New style for the row containing title and close button
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    width: '100%', // Ensure it takes full width for space-between
-  },
-  headerTitle: {
-    color: 'white',
-    fontSize: scaleFont(16), // Reduced base font size
-    fontWeight: '600',
-    letterSpacing: 0.5,
-    flex: 1, // Allow title to take up available space
-    textAlign: 'center', // Center the text within its available space
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
-  },
-  closeButton: {
-    padding: scaleLayoutValue(4), // Use scaleLayoutValue for button padding
-    //backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    width: 40, // Ensure consistent width for centering title
-    alignItems: 'center', // Center the '✕' within the touchable area
-    justifyContent: 'center', // Center the '✕' within the touchable area
-    borderRadius: scaleSize(12), // Scaled
-  },
-  closeButtonText: {
-    color: 'white',
-    fontSize: scaleFont(20), // Reduced base font size
-    fontWeight: '500',
-  },
-  closeButtonPlaceholder: {
-    width: 40, // Ensure consistent width for centering title
-  },
-  headerSideSpacer: { // Style for the balancing spacer on the left of the title
-    width: 40, // Match the closeButton/placeholder width
-  },
-  messageAreaWrapper: { // New wrapper for message area to control its flex behavior
-    flex: 1,
-    // marginBottom is now dynamic and set inline: CALCULATED_INPUT_AREA_HEIGHT + navBarHeight
-    backgroundColor: '#1E1B4B', // Match chatUIContainer background
-  },
-  messageArea: { 
-    flex: 1,
-    padding: scaleSize(10), // Scaled
-  },
-  messageContentContainer: {
-    paddingBottom: scaleSize(20), // Reduced padding, as marginBottom on wrapper handles space
-  },
-  message: { 
-    padding: scaleSize(12), // Scaled
-    borderRadius: scaleSize(16), // Scaled
-    marginBottom: scaleSize(8), // Scaled
-    maxWidth: '80%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: scaleSize(4), // Scaled
-    elevation: 2,
-  },
-  userMessage: { 
-    backgroundColor: '#7C3AED',
-    alignSelf: 'flex-end',
-    borderBottomRightRadius: scaleSize(4), // Scaled
-  },
-  botMessage: { 
-    backgroundColor: '#312E81',
-    alignSelf: 'flex-start',
-    borderBottomLeftRadius: scaleSize(4), // Scaled
-  },
-  fullWidthBotMessage: {
-    alignSelf: 'stretch',
-    maxWidth: '100%',
-    width: '100%',
-  },
-  userText: { 
-    color: 'white',
-    fontSize: scaleFont(12), // Further reduced base font size
-    lineHeight: scaleFont(18), // Adjusted line height
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
-  },
-  botText: { 
-    color: 'white',
-    fontSize: scaleFont(12), // Further reduced base font size
-    lineHeight: scaleFont(18), // Adjusted line height
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
-  },
-  inputArea: { 
-    flexDirection: 'row', 
-    // padding is now dynamic
-    // borderTopWidth is now dynamic
-    //borderTopColor: '#312E81', 
-    backgroundColor: '#1E1B4B',
-    position: 'absolute', 
-    // bottom is now dynamic, set in the component's style prop
-    // top: '82%', // REMOVED: Let flexbox and KeyboardAvoidingView handle vertical position
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    // transform: [{ translateY: -20 }], // This might need adjustment or removal
-  },
-  input: { 
-    flex: 1, 
-    backgroundColor: '#312E81', 
-    color: 'white', 
-    // borderRadius is now dynamic
-    // paddingHorizontal is now dynamic
-    marginRight: scaleSize(10), // Scaled
-    // height is now dynamic
-    // borderWidth is now dynamic
-    borderColor: '#7C3AED',
-    minHeight: scaleSize(31), // Scaled
-    // fontSize is now dynamic
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
-  },
-  sendButton: { 
-    backgroundColor: '#7C3AED', 
-    // borderRadius is now dynamic
-    // paddingVertical is now dynamic
-    // paddingHorizontal is now dynamic
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    // minWidth is now dynamic
-    // height is now dynamic
-    shadowColor: '#7C3AED',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: scaleSize(4), // Scaled
-    elevation: 4,
-  },
-  sendButtonDisabled: {
-    backgroundColor: '#4C1D95',
-    opacity: 0.7,
-  },
-  sendButtonText: { 
-    color: 'white', 
-    fontWeight: '600', // Adjusted fontWeight
-    // fontSize is already dynamically set in the component's style prop using scaleFont(16)
-    letterSpacing: 1, // Reduced letter spacing
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
-  },
-  chartContainer: {
-    marginTop: scaleSize(10),
-    marginBottom: scaleSize(10),
-    backgroundColor: '#2C2C2E',
-    borderRadius: scaleSize(8),
-    padding: scaleSize(10),
-    alignItems: 'center',
-    width: '100%',
-    overflow: 'hidden',
-  },
-  chart: {
-    width: '100%',
-    height: scaleSize(200),
-    marginBottom: scaleSize(5),
-    backgroundColor: 'transparent',
-  },
-  chartCaption: {
-    color: '#FFFFFF',
-    fontSize: scaleFont(12),
-    fontStyle: 'italic',
-    marginTop: scaleSize(5),
-  },
-  rawDataButton: {
-    marginTop: 8,
-    padding: 8,
-    backgroundColor: '#4C1D95',
-    borderRadius: 6,
-    alignSelf: 'flex-start',
-  },
-  rawDataButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    width: '90%',
-    maxHeight: '80%',
-    backgroundColor: '#1E1B4B',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#312E81',
-  },
-  modalTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  modalCloseButton: {
-    padding: 8,
-  },
-  modalCloseButtonText: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '500',
-  },
-  modalScrollView: {
-    padding: 16,
-  },
-  rawDataText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-});
+const markdownStyles = {
+    body: { color: '#FFFFFF', fontSize: 16 },
+    heading1: { color: '#A78BFA', marginTop: 10, marginBottom: 5 },
+    strong: { fontWeight: 'bold' },
+    paragraph: { marginTop: 5, marginBottom: 10 },
+};
 
-export default SchemaRAGChatbox;
+const styles = StyleSheet.create({
+  // Layout
+  chatUIContainer: { backgroundColor: '#1E1B4B', flex: 1, flexDirection: 'column' },
+  header: { paddingBottom: 8, paddingTop: 12, paddingHorizontal: 15, backgroundColor: '#7C3AED', alignItems: 'center' },
+  headerContentRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' },
+  dragHandle: { width: 60, height: 4, backgroundColor: 'rgba(255, 255, 255, 0.3)', borderRadius: 2, marginBottom: 8 },
+  headerTitle: { color: 'white', fontSize: 16, fontWeight: '600', flex: 1, textAlign: 'center', marginLeft: 30 },
+  closeButton: { padding: 4, width: 30, alignItems: 'center' },
+  closeButtonText: { color: 'white', fontSize: 20 },
+  messageArea: { flex: 1, paddingHorizontal: 10 },
+  messageContentContainer: { paddingVertical: 10 },
+  inputArea: { flexDirection: 'row', padding: 12, borderTopWidth: 1, borderTopColor: '#312E81', backgroundColor: '#1E1B4B' },
+  input: { flex: 1, backgroundColor: '#312E81', color: 'white', borderRadius: 20, paddingHorizontal: 15, height: 44, fontSize: 16, marginRight: 10 },
+  sendButton: { backgroundColor: '#7C3AED', borderRadius: 22, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, height: 44 },
+  sendButtonDisabled: { backgroundColor: '#4C1D95' },
+  sendButtonText: { color: 'white', fontWeight: '600' },
+  
+  // Messages
+  message: { padding: 12, borderRadius: 16, marginBottom: 8, maxWidth: '100%' },
+  userMessage: { backgroundColor: '#7C3AED', alignSelf: 'flex-end', borderBottomRightRadius: 4, maxWidth: '85%' },
+  botMessage: { backgroundColor: '#312E81', alignSelf: 'stretch', borderBottomLeftRadius: 4 },
+  userText: { color: 'white', fontSize: 16 }, // Style for user's plain text message
+  
+  // Raw Data Modal
+  rawDataButton: { marginTop: 12, paddingVertical: 8, paddingHorizontal: 12, backgroundColor: 'rgba(255, 255, 255, 0.1)', borderRadius: 6, alignSelf: 'flex-start' },
+  rawDataButtonText: { color: '#E0E0E0', fontSize: 12, fontWeight: '500' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { width: '90%', maxHeight: '80%', backgroundColor: '#1E1B4B', borderRadius: 12, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#312E81' },
+  modalTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '600' },
+  modalCloseButtonText: { color: '#FFFFFF', fontSize: 20 },
+  modalScrollView: { padding: 16 },
+  rawDataText: { color: '#E0E0E0', fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+
+  // Dynamic Component Renderers
+  rendererContainer: { backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: 8, padding: 12, marginTop: 12 },
+  rendererTitle: { color: '#A78BFA', fontSize: 14, fontWeight: 'bold', marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(167, 139, 250, 0.3)' },
+  kvContainer: {},
+  kvRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
+  kvKey: { color: '#D1D5DB', flex: 1 },
+  kvValue: { color: '#FFFFFF', fontWeight: '500', flex: 1, textAlign: 'right' },
+  
+  tableHeaderRow: { flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.3)' },
+  tableBodyRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
+  tableAltRow: { backgroundColor: 'rgba(255,255,255,0.05)' },
+  tableCell: { minWidth: 120, padding: 10, color: '#E0E0E0', fontSize: 14 },
+  tableHeaderText: { color: '#FFFFFF', fontWeight: 'bold' },
+  
+  newsCard: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)' },
+  newsTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '600', marginBottom: 4 },
+  newsPublisher: { color: '#A78BFA', fontSize: 12, fontStyle: 'italic' },
+});

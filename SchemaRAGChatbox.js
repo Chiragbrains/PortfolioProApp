@@ -14,12 +14,14 @@ import { ChatGroq } from "@langchain/groq";
 import { PromptTemplate } from "@langchain/core/prompts";
 import { JsonOutputParser } from "@langchain/core/output_parsers";
 import { RunnableSequence, RunnablePassthrough, RunnableLambda } from "@langchain/core/runnables";
+import { SystemMessage, HumanMessage } from "@langchain/core/messages";
 
 // --- Service & UI Imports ---
 import { findSimilarSchemaContexts, initializeSchemaEmbeddings } from './services/embeddingService';
 import { SchemaRAGChatboxUI } from './SchemaRAGChatbox.jsx';
 import YFinanceHandler from './yfinance_handler.js';
-import { GROQ_API_KEY } from '@env';
+import { GROQ_API_KEY, LLM7_API_KEY } from '@env';
+import { ChatLLM7 } from 'langchain-llm7';
 
 // --- Constants ---
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -29,9 +31,9 @@ const MINIMIZED_PANEL_HEIGHT = SCREEN_HEIGHT * 0.57;
 const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => {
   // --- State and Refs ---
   const [messages, setMessages] = useState([
-    { 
+    {
       id: `welcome-${Date.now()}`,
-      role: 'assistant', 
+      role: 'assistant',
       content: 'Hello! Ask me about your portfolio or general market data.',
       renderInstructions: [],
     }
@@ -39,22 +41,23 @@ const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => {
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { supabaseClient } = useSupabaseConfig();
-  
+
   const translateY = useRef(new Animated.Value(0)).current;
   const dragStartTranslateY = useRef(0);
   const [isMinimized, setIsMinimized] = useState(false);
   const yfinanceHandler = useRef(new YFinanceHandler()).current;
 
   // --- LLM Instances ---
-  const llmEntityExtraction = new ChatGroq({
-    apiKey: GROQ_API_KEY,
-    model: "meta-llama/llama-4-scout-17b-16e-instruct",
+  const llmEntityExtraction = new ChatLLM7({
+    apiKey: LLM7_API_KEY,
+    // model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+    model: 'gpt-4o-mini-2024-07-18',
     temperature: 0.1,
   });
-
-  const llmSqlGeneration = new ChatGroq({
-    apiKey: GROQ_API_KEY,
-    model: "meta-llama/llama-4-scout-17b-16e-instruct",
+  const llmSqlGeneration = new ChatLLM7({
+    apiKey: LLM7_API_KEY,
+    // model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+    model: 'gpt-4o-mini-2024-07-18',
     temperature: 0.1,
   });
 
@@ -87,7 +90,6 @@ const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => {
   // --- Core RAG Pipeline Functions (Using User-Provided Prompts) ---
 
   const determineQuerySourceAndEntities = async (userQuery) => {
-    // Using user-provided prompt #1
     const systemPrompt = `You are an expert query router for a financial chatbot. Your task is to analyze the user's question and determine the correct data source.
 
 There are two data sources:
@@ -107,7 +109,10 @@ There are two data sources:
 Now, analyze the following user query and respond ONLY with a JSON object in the format:
 { "dataSource": "portfolio_db" | "yfinance", "entityInfo": { ... } }`;
     
-    const llmResponse = await llmEntityExtraction.invoke([{ type: "system", content: systemPrompt }, { type: "human", content: userQuery }]);
+    const llmResponse = await llmEntityExtraction.invoke([
+        new SystemMessage(systemPrompt),
+        new HumanMessage(userQuery),
+    ]);
     try {
         const jsonMatch = llmResponse.content.trim().match(/{[\s\S]*}/);
         if (jsonMatch && jsonMatch[0]) return JSON.parse(jsonMatch[0]);
@@ -118,102 +123,56 @@ Now, analyze the following user query and respond ONLY with a JSON object in the
     }
   };
 
+  // --- MODIFIED FUNCTION ---
   const generateSQLFromContext = async (userQuery, schemaContexts, queryDetails) => {
     const contextText = schemaContexts.map(ctx => `${ctx.source_type.toUpperCase()}: ${ctx.content}`).join('\n\n');
-      const systemPromptContent = `You are a PostgreSQL expert. Generate precise SQL SELECT queries based on schema and natural language questions. Always use ILIKE for case-insensitive text matching in WHERE clauses. Return only the SQL query without any explanations.`;
-      
-    // Using user-provided prompt #2
-      const userPromptContent = `Given the following database schema information:
+    const systemPromptContent = `You are a PostgreSQL expert. Generate precise, efficient SQL SELECT queries from natural language. Return only the SQL query.`;
+
+    const userPromptContent = `Given the following database schema information:
 ${contextText}
 
-You are an expert SQL generator with 40 years of experience. Your task is to translate natural language questions into SQL SELECT queries.
-Generate a PostgreSQL SELECT query to answer this question: "${userQuery}"
+Translate this question into a single, efficient PostgreSQL SELECT query: "${userQuery}"
 
-Requirements:
-1. Use ONLY the tables and columns defined in the schema information provided above.
-2. If an 'IMPORTANT_TICKER_DIRECTIVE' is provided, you MUST use the exact ticker symbol from that directive in your WHERE clause for ticker symbols (e.g., \`WHERE ticker ILIKE 'DIRECTIVE_TICKER'\`). Do NOT use any other ticker or name from the user's question or the directive's "original_mention" part. Do NOT add wildcards like '%' to this specific ticker.
-3. If a 'USER_MENTIONED_COMPANY_NAME' directive is provided, you should attempt to include a condition to match against the 'company_name' column (if available and relevant in the schema) using ILIKE with wildcards (e.g., \`WHERE company_name ILIKE '%MENTIONED_COMPANY_NAME%'\`). You may also include a ticker match if a ticker can be reasonably inferred and is present in the schema.
-4. If neither 'IMPORTANT_TICKER_DIRECTIVE' nor 'USER_MENTIONED_COMPANY_NAME' is given, and the user's question seems to refer to a stock by name or ticker, use ILIKE for case-insensitive matching on the 'ticker' column (e.g., \`WHERE ticker ILIKE '%SYMBOL_FROM_USER_QUESTION%'\`) or 'company_name' column if appropriate and available in the schema.
-5. Start the query with SELECT or WITH
-6. Do NOT include any explanations or comments
-7. Do NOT include semicolons at the end
-8. For account value and position queries:
-   - Always JOIN investment_accounts (ia) with portfolio_summary (ps)
-   - Join condition: ON ps.ticker = ia.ticker
-   - Get quantities from investment_accounts
-   - Get prices from portfolio_summary
-   - Calculate position value as: ps.current_price * ia.quantity
-9. For account filtering:
-   - Filter using ia.account ILIKE pattern
-   - Include account name in SELECT for grouping
-10. GROUP BY Clause: When using aggregate functions (e.g., SUM, AVG, COUNT, MAX, MIN), any column in the SELECT list that is NOT itself an aggregate function or enclosed within one MUST be included in the GROUP BY clause. For example, if you SELECT "col_a", "SUM(col_b)", then "col_a" must be in 'GROUP BY'. Columns used *only* inside an aggregate function (e.g., 'col_b' in 'SUM(col_b)') should generally not be in the GROUP BY clause unless you intend to group by each distinct value of that column.
-11. For profit/loss calculations:
-   - Use portfolio_history table for date-based analysis
-   - Calculate period P&L as: end_date.total_pnl - start_date.total_pnl
-   - Do NOT use total_value for P&L (it includes cash and cost basis changes)
-   - Use exact dates from portfolio_history, not calculated summaries
+---
+**Core Concepts:**
+- **"Value"** is a monetary amount, calculated as \`price * quantity\`. Use an appropriate alias like 'total_value'.
+- **"Shares"** or **"quantity"** is the number of units held, from the \`quantity\` column. Use an alias like 'total_shares'.
+- To get a price, you MUST JOIN \`investment_accounts\` with \`portfolio_summary\` ON \`ps.ticker = ia.ticker\`.
 
-Example formats:
-- Account total value: 
-  SELECT 
-    ia.account,
-    SUM(ps.current_price * ia.quantity) as total_value
-  FROM investment_accounts ia
-  JOIN portfolio_summary ps ON ps.ticker = ia.ticker
-  WHERE ia.account ILIKE '%Account_Name%'
-  GROUP BY ia.account
+**Requirements:**
+1.  Use ONLY the tables and columns from the schema above.
+2.  For queries about a specific stock, use a simple and efficient WHERE clause (e.g., \`WHERE ia.ticker ILIKE 'MSFT'\`). DO NOT use complex CTEs like 'WITH' for single-ticker lookups.
+3.  Use \`ILIKE\` for case-insensitive text matching.
+4.  Start the query with \`SELECT\`.
+5.  Do NOT include explanations, comments, or a final semicolon.
+6.  When using aggregate functions (SUM, AVG, COUNT), every non-aggregated column in the SELECT list MUST be in the GROUP BY clause.
 
-- Account positions: 
-  SELECT 
-    ia.account,
-    ia.ticker,
-    ia.quantity,
-    ps.current_price,
-    (ps.current_price * ia.quantity) as position_value
-  FROM investment_accounts ia
-  JOIN portfolio_summary ps ON ps.ticker = ia.ticker
-  WHERE ia.account ILIKE '%Account_Name%'
+---
+**Example Formats:**
 
-- Stock holdings: 
-  SELECT ia.account, ia.quantity, ps.current_price
-  FROM investment_accounts ia
-  JOIN portfolio_summary ps ON ps.ticker = ia.ticker
-  WHERE ia.ticker ILIKE 'AAPL'
+- **Question:** "What is the total value of my main account?"
+  **SQL:**
+  SELECT ia.account, SUM(ps.current_price * ia.quantity) as total_value FROM investment_accounts ia JOIN portfolio_summary ps ON ps.ticker = ia.ticker WHERE ia.account ILIKE '%main account%' GROUP BY ia.account
 
-- Date Range P&L:
-  WITH month_bounds AS (
-    SELECT 
-      -- Get first and last dates that match the month pattern
-      (
-        SELECT date
-        FROM portfolio_history
-        WHERE EXTRACT(MONTH FROM date) = EXTRACT(MONTH FROM '[start_date]'::date)
-        ORDER BY date ASC
-        LIMIT 1
-      ) as start_date,
-      (
-        SELECT date
-        FROM portfolio_history
-        WHERE EXTRACT(MONTH FROM date) = EXTRACT(MONTH FROM '[end_date]'::date)
-        ORDER BY date DESC
-        LIMIT 1
-      ) as end_date
-  ) SELECT 
-    ph_start.date as start_date,
-    ph_end.date as end_date,
-    ph_end.total_pnl - ph_start.total_pnl as period_pnl,
-    CASE 
-      WHEN ph_start.total_pnl != 0 
-      THEN ((ph_end.total_pnl - ph_start.total_pnl) / ABS(ph_start.total_pnl)) * 100
-      ELSE NULL 
-    END as pnl_percent
-  FROM month_bounds mb
-  JOIN portfolio_history ph_start ON ph_start.date = mb.start_date
-  JOIN portfolio_history ph_end ON ph_end.date = mb.end_date
+- **Question:** "How many total shares of apple do I own?"
+  **SQL:**
+  SELECT SUM(ia.quantity) as total_shares FROM investment_accounts ia WHERE ia.ticker ILIKE 'AAPL'
+
+- **Question:** "What's the total value of my microsoft stock?"
+  **SQL:**
+  SELECT SUM(ps.current_price * ia.quantity) as total_value FROM investment_accounts ia JOIN portfolio_summary ps ON ps.ticker = ia.ticker WHERE ia.ticker ILIKE 'MSFT'
+
+- **Question:** "Show my positions in my trading account"
+  **SQL:**
+  SELECT ia.ticker, ia.quantity, ps.current_price, (ps.current_price * ia.quantity) as position_value FROM investment_accounts ia JOIN portfolio_summary ps ON ps.ticker = ia.ticker WHERE ia.account ILIKE '%trading account%'
 
 Your SQL query:`;
 
-    const llmResponse = await llmSqlGeneration.invoke([{ type: "system", content: systemPromptContent }, { type: "human", content: userPromptContent }]);
+    const llmResponse = await llmSqlGeneration.invoke([
+      new SystemMessage(systemPromptContent),
+      new HumanMessage(userPromptContent),
+    ]);
+
     const sql = llmResponse.content.trim().replace(/```sql|```/g, '').replace(/;$/, '');
     
     if (!sql.toLowerCase().startsWith('select') && !sql.toLowerCase().startsWith('with')) {
@@ -277,7 +236,7 @@ Your SQL query:`;
       
           const finalChain = RunnableSequence.from([
             formattingPrompt,
-            llmSqlGeneration, // Assuming this is your text-generation LLM instance
+            llmSqlGeneration,
             new JsonOutputParser()
           ]);
       
@@ -319,7 +278,6 @@ Your SQL query:`;
             generatedSql: new RunnableLambda({ func: (input) => generateSQLFromContext(input.query, input.similarContexts, queryDetails) })
           }),
           new RunnableLambda({ func: async ({ generatedSql }) => {
-              // Patch: Remove trailing semicolon, wrap as SELECT row_to_json(t.*) FROM (<sql>) t
               const baseSql = generatedSql.replace(/;$/, '');
               const finalSqlQuery = `SELECT row_to_json(t.*) FROM (${baseSql}) t`;
               const { data, error } = await supabaseClient.rpc('execute_portfolio_query', { query_text: finalSqlQuery });
@@ -327,7 +285,6 @@ Your SQL query:`;
               if (!Array.isArray(data) || data.length === 0) {
                 throw new Error('No data found for your portfolio query. Please check your portfolio or try a different question.');
               }
-              // Patch: Return data as-is (do not map item.row_to_json)
               return data;
           }})
         ]);
@@ -338,7 +295,7 @@ Your SQL query:`;
         if (yfinanceResponse.type === 'error' || !yfinanceResponse.content) {
           throw new Error(yfinanceResponse.error || 'No data found for your yfinance query. Please try again later.');
         }
-        rawData = yfinanceResponse; // Pass the entire backend response for raw data (logs + llm output)
+        rawData = yfinanceResponse;
         charts = yfinanceResponse.charts || null;
       }
 
@@ -434,5 +391,9 @@ const componentStyles = StyleSheet.create({
     overflow: 'hidden',
   },
 });
+
+if (!GROQ_API_KEY || typeof GROQ_API_KEY !== 'string' || GROQ_API_KEY.length < 10) {
+  throw new Error('GROQ_API_KEY is missing or invalid. Please check your .env file and restart the app.');
+}
 
 export default SchemaRAGChatbox;

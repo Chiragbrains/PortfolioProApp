@@ -9,20 +9,62 @@ import {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSupabaseConfig } from './SupabaseConfigContext';
 
-// --- Langchain Imports ---
-import { ChatGroq } from "@langchain/groq";
-import { PromptTemplate } from "@langchain/core/prompts";
-import { JsonOutputParser } from "@langchain/core/output_parsers";
-import { RunnableSequence, RunnablePassthrough, RunnableLambda } from "@langchain/core/runnables";
-import { SystemMessage, HumanMessage } from "@langchain/core/messages";
-
 // --- Service & UI Imports ---
 import { findSimilarSchemaContexts, initializeSchemaEmbeddings } from './services/embeddingService';
 import { SchemaRAGChatboxUI } from './SchemaRAGChatbox.jsx';
 import YFinanceHandler from './yfinance_handler.js';
-import { GROQ_API_KEY, LLM7_API_KEY } from '@env';
-import { ChatLLM7 } from 'langchain-llm7';
+import { OPENROUTER_API_KEY } from '@env';
 
+// --- OpenRouter LLM Helper ---
+const ROUTER_MODEL = 'meta-llama/llama-3-70b-instruct'; // Fast model for simple tasks
+const SQL_GENERATION_MODEL = 'meta-llama/llama-3-70b-instruct'; // Powerful model for SQL generation
+
+async function callOpenRouter({ messages, model = ROUTER_MODEL, apiKey = OPENROUTER_API_KEY, jsonMode = false }) {
+  if (!apiKey || typeof apiKey !== 'string' || apiKey.length < 10) {
+    throw new Error('OPENROUTER_API_KEY is missing or invalid. Please check your .env file and restart the app.');
+  }
+
+  const body = {
+    model,
+    messages,
+  };
+
+  if (jsonMode) {
+    body.response_format = { type: "json_object" };
+  }
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': 'http://localhost', // required
+      'X-Title': 'Portfolio Chat App',    // optional
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenRouter API error: ${response.status} ${errText}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices[0]?.message?.content;
+
+  if (!content) {
+    throw new Error('No valid response from OpenRouter.');
+  }
+
+  // Conditionally parse the response
+  if (jsonMode) {
+    // For functions expecting JSON, parse the string content
+    return JSON.parse(content);
+  } else {
+    // For SQL generation, return the raw string content
+    return content;
+  }
+}
 // --- Constants ---
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const PANEL_TOTAL_HEIGHT = SCREEN_HEIGHT * 1;
@@ -47,28 +89,14 @@ const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => {
   const [isMinimized, setIsMinimized] = useState(false);
   const yfinanceHandler = useRef(new YFinanceHandler()).current;
 
-  // --- LLM Instances ---
-  const llmEntityExtraction = new ChatLLM7({
-    apiKey: LLM7_API_KEY,
-    // model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-    model: 'gpt-4o-mini-2024-07-18',
-    temperature: 0.1,
-  });
-  const llmSqlGeneration = new ChatLLM7({
-    apiKey: LLM7_API_KEY,
-    // model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-    model: 'gpt-4o-mini-2024-07-18',
-    temperature: 0.1,
-  });
-
   // --- Effects ---
   useEffect(() => {
+    // This function remains the same
     const initializeIfNeeded = async () => {
       if (!supabaseClient) return;
       try {
         const { data, error } = await supabaseClient.from('portfolio_context_embeddings').select('id').limit(1);
         if (error) throw error;
-
         if (!data || data.length === 0) {
           console.log('No schema contexts found. Initializing...');
           setIsLoading(true);
@@ -87,93 +115,67 @@ const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => {
     initializeIfNeeded();
   }, [supabaseClient]);
 
-  // --- Core RAG Pipeline Functions (Using User-Provided Prompts) ---
+
+  // --- Core RAG Pipeline Functions ---
 
   const determineQuerySourceAndEntities = async (userQuery) => {
     const systemPrompt = `You are an expert query router for a financial chatbot. Your task is to analyze the user's question and determine the correct data source.
 
 There are two data sources:
 1.  **"portfolio_db"**: Use for questions about the user's PERSONAL holdings. These queries often use possessive words like "my", "I", "mine", or ask about specific accounts.
-2.  **"yfinance"**: Use for GENERAL market data about a stock or the market as a whole. These are impersonal questions.
+2.  **"yfinance"**: Use for GENERAL market data about a stock or the market as a whole.
 
-**CRITICAL INSTRUCTION:** The user's phrasing is the most important clue.
-
-**Examples:**
-- "how many apple shares do I have?" -> **"portfolio_db"** (The user is asking about *their* shares)
-- "what is the price of apple stock?" -> **"yfinance"** (A general question about the market price)
-- "show my portfolio" -> **"portfolio_db"**
-- "get the latest news for MSFT" -> **"yfinance"**
-- "what is the total value of my main account?" -> **"portfolio_db"**
-- "what is the market cap of Tesla?" -> **"yfinance"**
-
-Now, analyze the following user query and respond ONLY with a JSON object in the format:
+Analyze the user query and respond ONLY with a JSON object in the format:
 { "dataSource": "portfolio_db" | "yfinance", "entityInfo": { ... } }`;
-    
-    const llmResponse = await llmEntityExtraction.invoke([
-        new SystemMessage(systemPrompt),
-        new HumanMessage(userQuery),
-    ]);
+
     try {
-        const jsonMatch = llmResponse.content.trim().match(/{[\s\S]*}/);
-        if (jsonMatch && jsonMatch[0]) return JSON.parse(jsonMatch[0]);
-        throw new Error('No valid JSON object found in LLM response.');
+      // JSON mode is enforced in the helper function now
+      const result = await callOpenRouter({
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userQuery },
+        ],
+        jsonMode: true,
+      });
+      return result;
     } catch (error) {
-        console.error("Error determining query source, defaulting to yfinance:", error);
-        return { dataSource: "yfinance", entityInfo: {} };
+      console.error("Error determining query source, defaulting to yfinance:", error);
+      return { dataSource: "yfinance", entityInfo: {} };
     }
   };
 
-  // --- MODIFIED FUNCTION ---
-  const generateSQLFromContext = async (userQuery, schemaContexts, queryDetails) => {
+  const generateSQLFromContext = async (userQuery, schemaContexts) => {
     const contextText = schemaContexts.map(ctx => `${ctx.source_type.toUpperCase()}: ${ctx.content}`).join('\n\n');
-    const systemPromptContent = `You are a PostgreSQL expert. Generate precise, efficient SQL SELECT queries from natural language. Return only the SQL query.`;
-
-    const userPromptContent = `Given the following database schema information:
+    
+    // **FIX:** This prompt is simplified and more direct for better accuracy.
+    const userPromptContent = `
+**Database Schema:**
 ${contextText}
 
-Translate this question into a single, efficient PostgreSQL SELECT query: "${userQuery}"
+---
+**Task:**
+Based on the schema, write a single, efficient PostgreSQL query for the following question.
+**Question:** "${userQuery}"
 
 ---
-**Core Concepts:**
-- **"Value"** is a monetary amount, calculated as \`price * quantity\`. Use an appropriate alias like 'total_value'.
-- **"Shares"** or **"quantity"** is the number of units held, from the \`quantity\` column. Use an alias like 'total_shares'.
-- To get a price, you MUST JOIN \`investment_accounts\` with \`portfolio_summary\` ON \`ps.ticker = ia.ticker\`.
-
-**Requirements:**
-1.  Use ONLY the tables and columns from the schema above.
-2.  For queries about a specific stock, use a simple and efficient WHERE clause (e.g., \`WHERE ia.ticker ILIKE 'MSFT'\`). DO NOT use complex CTEs like 'WITH' for single-ticker lookups.
-3.  Use \`ILIKE\` for case-insensitive text matching.
-4.  Start the query with \`SELECT\`.
-5.  Do NOT include explanations, comments, or a final semicolon.
-6.  When using aggregate functions (SUM, AVG, COUNT), every non-aggregated column in the SELECT list MUST be in the GROUP BY clause.
+**Critical Rules:**
+1.  **NEVER GUESS column or table names.** Only use what is provided in the schema.
+2.  **"Value" means money:** Calculate it as \`price * quantity\`.
+3.  **"Shares" or "quantity" means a count:** Use the \`quantity\` column directly.
+4.  For prices, you **MUST JOIN** \`investment_accounts\` with \`portfolio_summary\`.
+5.  Use \`ILIKE\` for case-insensitive text matching (e.g., \`WHERE ticker ILIKE 'aapl'\`).
+6.  Respond with **ONLY the SQL query**. No explanations, no markdown, no semicolon.
 
 ---
-**Example Formats:**
+**Query:**
+`;
+    // **FIX:** We now call the more powerful model specifically for this complex task.
+    const content = await callOpenRouter({
+      messages: [{ role: "user", content: userPromptContent }],
+      model: SQL_GENERATION_MODEL // Using the powerful model
+    });
 
-- **Question:** "What is the total value of my main account?"
-  **SQL:**
-  SELECT ia.account, SUM(ps.current_price * ia.quantity) as total_value FROM investment_accounts ia JOIN portfolio_summary ps ON ps.ticker = ia.ticker WHERE ia.account ILIKE '%main account%' GROUP BY ia.account
-
-- **Question:** "How many total shares of apple do I own?"
-  **SQL:**
-  SELECT SUM(ia.quantity) as total_shares FROM investment_accounts ia WHERE ia.ticker ILIKE 'AAPL'
-
-- **Question:** "What's the total value of my microsoft stock?"
-  **SQL:**
-  SELECT SUM(ps.current_price * ia.quantity) as total_value FROM investment_accounts ia JOIN portfolio_summary ps ON ps.ticker = ia.ticker WHERE ia.ticker ILIKE 'MSFT'
-
-- **Question:** "Show my positions in my trading account"
-  **SQL:**
-  SELECT ia.ticker, ia.quantity, ps.current_price, (ps.current_price * ia.quantity) as position_value FROM investment_accounts ia JOIN portfolio_summary ps ON ps.ticker = ia.ticker WHERE ia.account ILIKE '%trading account%'
-
-Your SQL query:`;
-
-    const llmResponse = await llmSqlGeneration.invoke([
-      new SystemMessage(systemPromptContent),
-      new HumanMessage(userPromptContent),
-    ]);
-
-    const sql = llmResponse.content.trim().replace(/```sql|```/g, '').replace(/;$/, '');
+    const sql = content.trim().replace(/```sql|```/g, '').replace(/;$/, '');
     
     if (!sql.toLowerCase().startsWith('select') && !sql.toLowerCase().startsWith('with')) {
         throw new Error('Generated response did not contain a valid SELECT or WITH statement.');
@@ -182,74 +184,37 @@ Your SQL query:`;
     return sql;
   };
 
-  const executeSupabaseQuery = async (sqlQuery) => {
-    const { data, error } = await supabaseClient.rpc('execute_portfolio_query', { query_text: sqlQuery });
-    if (error) throw error;
-    return data;
-  };
-
   const generateFinalResponse = async ({ query, rawData }) => {
-    const formattingPrompt = PromptTemplate.fromTemplate(`
-      You are an expert financial UI developer. Your task is to process raw JSON data from a financial API and generate a user-friendly response for a mobile app.
+    const systemPrompt = (`
+      You are an expert financial UI developer. Your task is to process raw JSON data and generate a user-friendly response for a mobile app.
       
-      Based on the user's query and the provided Raw Data, create a JSON object with two keys: "summary" and "render_instructions".
+      Based on the user's query: "${query}"
+      And the provided Raw Data: ${JSON.stringify(rawData, null, 2)}
       
-      **User's Query:** "{query}"
-      **Raw Data:** {rawData}
+      Create a JSON object with two keys: "summary" and "render_instructions".
       
-      ---
       **COMPONENT RULES:**
-      - **Use "key_value_pairs"** for single objects (like company info).
-      - **Use "table"** for lists of objects (like holdings or price history). Headers should be derived from object keys.
-      - **Use "bar_chart"** for categorical or time-based breakdowns (like quarterly revenue).
-      - **Use "line_chart"** for continuous time-series data (like historical portfolio value).
+      - Use "key_value_pairs" for single objects.
+      - Use "table" for lists of objects.
+      - Use "bar_chart" or "line_chart" for time-series data.
       
-      ---
-      **CRITICAL INSTRUCTIONS FOR CHARTING:**
-      If the user asks for a chart or the data clearly represents a time series (like quarterly revenue), you MUST create the correct chart component.
-      - The 'data' array for charts must be an array of objects, e.g., [{{ "label": "Q1", "value": 100 }}].
-      - You MUST extract the correct date/label and the corresponding numerical value from the Raw Data.
-      
-      **Example of transforming backend data to a chart:**
-      If the Raw Data is \`{{ "get_quarterly_income_stmt": {{ "2024-12-31": {{"Total Revenue": 150000}}, "2024-09-30": {{"Total Revenue": 140000}}}} }}\`, your output should be:
-      \`\`\`json
-      {{
-        "summary": "Here is a bar chart of the quarterly revenue.",
-        "render_instructions": [
-          {{
-            "component": "bar_chart",
-            "props": {{
-              "title": "Quarterly Revenue",
-              "data": [
-                {{ "label": "2024-12-31", "value": 150000 }},
-                {{ "label": "2024-09-30", "value": 140000 }}
-              ],
-              "options": {{ "xKey": "label", "yKey": "value" }}
-            }}
-          }}
-        ]
-      }}
-      \`\`\`
-      
-      Now, analyze the query and data, and respond ONLY with a single, valid JSON object.
+      Respond ONLY with a single, valid JSON object.
       `);
-      
-          const finalChain = RunnableSequence.from([
-            formattingPrompt,
-            llmSqlGeneration,
-            new JsonOutputParser()
-          ]);
-      
-          try {
-            return await finalChain.invoke({ query, rawData: JSON.stringify(rawData, null, 2) });
-          } catch (error) {
-            console.error("Error generating final formatted response:", error);
-            return {
-              summary: "I found the data, but had trouble formatting it. Here is the raw data.",
-              render_instructions: [{ component: 'key_value_pairs', props: { title: 'Raw Data', data: rawData } }]
-            };
-          }
-        };
+    try {
+      // JSON mode enforced in the helper
+      const result = await callOpenRouter({
+        messages: [{ role: "system", content: systemPrompt }],
+        jsonMode: true,
+      });
+      return result;
+    } catch (error) {
+      console.error("Error generating final formatted response:", error);
+      return {
+        summary: "I found the data, but had trouble formatting it. Here is the raw data.",
+        render_instructions: [{ component: 'key_value_pairs', props: { title: 'Raw Data', data: rawData } }]
+      };
+    }
+  };
 
   // --- Main Handler ---
   const handleSend = async () => {
@@ -257,7 +222,6 @@ Your SQL query:`;
     const query = inputText.trim();
     setInputText('');
     setIsLoading(true);
-
     setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: query }]);
 
     try {
@@ -265,30 +229,23 @@ Your SQL query:`;
       let rawData, charts = null;
 
       if (queryDetails.dataSource === "portfolio_db") {
-        console.log("Routing to Portfolio DB using original chain logic...");
-        const portfolioRagChain = RunnableSequence.from([
-          RunnablePassthrough.assign({
-            similarContexts: new RunnableLambda({ func: (input) => findSimilarSchemaContexts(supabaseClient, input.query) })
-          }),
-          (input) => {
-              if (!input.similarContexts?.length) throw new Error('No relevant schema context found for your portfolio query.');
-              return input;
-          },
-          RunnablePassthrough.assign({
-            generatedSql: new RunnableLambda({ func: (input) => generateSQLFromContext(input.query, input.similarContexts, queryDetails) })
-          }),
-          new RunnableLambda({ func: async ({ generatedSql }) => {
-              const baseSql = generatedSql.replace(/;$/, '');
-              const finalSqlQuery = `SELECT row_to_json(t.*) FROM (${baseSql}) t`;
-              const { data, error } = await supabaseClient.rpc('execute_portfolio_query', { query_text: finalSqlQuery });
-              if (error) throw error;
-              if (!Array.isArray(data) || data.length === 0) {
-                throw new Error('No data found for your portfolio query. Please check your portfolio or try a different question.');
-              }
-              return data;
-          }})
-        ]);
-        rawData = await portfolioRagChain.invoke({ query, queryDetails });
+        console.log("Routing to Portfolio DB...");
+        const similarContexts = await findSimilarSchemaContexts(supabaseClient, query);
+        if (!similarContexts || !similarContexts.length) {
+          throw new Error('No relevant schema context found for your portfolio query.');
+        }
+        const generatedSql = await generateSQLFromContext(query, similarContexts);
+        const baseSql = generatedSql.replace(/;$/, '');
+        const finalSqlQuery = `SELECT row_to_json(t.*) FROM (${baseSql}) t`;
+        
+        const { data, error } = await supabaseClient.rpc('execute_portfolio_query', { query_text: finalSqlQuery });
+        if (error) {
+          throw new Error(`SQL Error: ${error.message}\n\nSQL: ${finalSqlQuery}`);
+        }
+        if (!Array.isArray(data) || data.length === 0) {
+          throw new Error('No data found for your portfolio query. Please check your portfolio or try a different question.');
+        }
+        rawData = data;
       } else {
         console.log("Routing to YFinance...");
         const yfinanceResponse = await yfinanceHandler.processQuery(query);
@@ -301,11 +258,20 @@ Your SQL query:`;
 
       const finalResponse = await generateFinalResponse({ query, rawData });
 
+      // --- FIX: Validate the AI response before setting state ---
+      const messageContent = (finalResponse && typeof finalResponse.summary === 'string')
+        ? finalResponse.summary
+        : 'I found data but could not generate a summary.'; // Fallback text
+
+      const renderInstructions = (finalResponse && Array.isArray(finalResponse.render_instructions))
+        ? finalResponse.render_instructions
+        : []; // Fallback empty array
+
       setMessages(prev => [...prev, {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
-        content: finalResponse.summary,
-        renderInstructions: finalResponse.render_instructions,
+        content: messageContent, // Use the validated string
+        renderInstructions: renderInstructions, // Use the validated array
         rawData,
         charts,
       }]);
@@ -324,6 +290,7 @@ Your SQL query:`;
   };
 
   // --- Animation & Gesture Logic ---
+  // This section remains the same
   const dragGesture = Gesture.Pan()
     .onStart(() => { dragStartTranslateY.current = translateY._value; })
     .onUpdate((event) => {
@@ -391,9 +358,5 @@ const componentStyles = StyleSheet.create({
     overflow: 'hidden',
   },
 });
-
-if (!GROQ_API_KEY || typeof GROQ_API_KEY !== 'string' || GROQ_API_KEY.length < 10) {
-  throw new Error('GROQ_API_KEY is missing or invalid. Please check your .env file and restart the app.');
-}
 
 export default SchemaRAGChatbox;

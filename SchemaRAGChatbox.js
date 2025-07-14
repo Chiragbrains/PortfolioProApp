@@ -58,13 +58,19 @@ async function callOpenRouter({ messages, model = ROUTER_MODEL, apiKey = OPENROU
 
   // Conditionally parse the response
   if (jsonMode) {
-    // For functions expecting JSON, parse the string content
-    return JSON.parse(content);
+    try {
+      // For functions expecting JSON, parse the string content
+      return JSON.parse(content);
+    } catch (parseError) {
+      console.error('Failed to parse JSON response:', content);
+      throw new Error('Invalid JSON response from OpenRouter');
+    }
   } else {
     // For SQL generation, return the raw string content
     return content;
   }
 }
+
 // --- Constants ---
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const PANEL_TOTAL_HEIGHT = SCREEN_HEIGHT * 1;
@@ -115,7 +121,6 @@ const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => {
     initializeIfNeeded();
   }, [supabaseClient]);
 
-
   // --- Core RAG Pipeline Functions ---
 
   const determineQuerySourceAndEntities = async (userQuery) => {
@@ -126,10 +131,13 @@ There are two data sources:
 2.  **"yfinance"**: Use for GENERAL market data about a stock or the market as a whole.
 
 Analyze the user query and respond ONLY with a JSON object in the format:
-{ "dataSource": "portfolio_db" | "yfinance", "entityInfo": { ... } }`;
+{ "dataSource": "portfolio_db" | "yfinance", "entityInfo": { } }
+
+Example responses:
+{"dataSource": "portfolio_db", "entityInfo": {}}
+{"dataSource": "yfinance", "entityInfo": {}}`;
 
     try {
-      // JSON mode is enforced in the helper function now
       const result = await callOpenRouter({
         messages: [
           { role: "system", content: systemPrompt },
@@ -137,6 +145,13 @@ Analyze the user query and respond ONLY with a JSON object in the format:
         ],
         jsonMode: true,
       });
+      
+      // Validate the response structure
+      if (!result || typeof result !== 'object' || !result.dataSource) {
+        console.error("Invalid query routing response:", result);
+        return { dataSource: "yfinance", entityInfo: {} };
+      }
+      
       return result;
     } catch (error) {
       console.error("Error determining query source, defaulting to yfinance:", error);
@@ -147,7 +162,6 @@ Analyze the user query and respond ONLY with a JSON object in the format:
   const generateSQLFromContext = async (userQuery, schemaContexts) => {
     const contextText = schemaContexts.map(ctx => `${ctx.source_type.toUpperCase()}: ${ctx.content}`).join('\n\n');
     
-    // **FIX:** This prompt is simplified and more direct for better accuracy.
     const userPromptContent = `
 **Database Schema:**
 ${contextText}
@@ -169,10 +183,10 @@ Based on the schema, write a single, efficient PostgreSQL query for the followin
 ---
 **Query:**
 `;
-    // **FIX:** We now call the more powerful model specifically for this complex task.
+    
     const content = await callOpenRouter({
       messages: [{ role: "user", content: userPromptContent }],
-      model: SQL_GENERATION_MODEL // Using the powerful model
+      model: SQL_GENERATION_MODEL
     });
 
     const sql = content.trim().replace(/```sql|```/g, '').replace(/;$/, '');
@@ -185,33 +199,93 @@ Based on the schema, write a single, efficient PostgreSQL query for the followin
   };
 
   const generateFinalResponse = async ({ query, rawData }) => {
-    const systemPrompt = (`
-      You are an expert financial UI developer. Your task is to process raw JSON data and generate a user-friendly response for a mobile app.
-      
-      Based on the user's query: "${query}"
-      And the provided Raw Data: ${JSON.stringify(rawData, null, 2)}
-      
-      Create a JSON object with two keys: "summary" and "render_instructions".
-      
-      **COMPONENT RULES:**
-      - Use "key_value_pairs" for single objects.
-      - Use "table" for lists of objects.
-      - Use "bar_chart" or "line_chart" for time-series data.
-      
-      Respond ONLY with a single, valid JSON object.
-      `);
+    const systemPrompt = `You are an expert financial UI developer. Your task is to process raw JSON data and generate a user-friendly response for a mobile app.
+
+Based on the user's query: "${query}"
+And the provided Raw Data: ${JSON.stringify(rawData, null, 2)}
+
+Create a JSON object with exactly these two keys:
+- "summary": A clear, human-readable summary of the findings (string)
+- "render_instructions": An array of UI component instructions
+
+**COMPONENT RULES:**
+- Use "key_value_pairs" for single objects with props: {title: string, data: object}
+- Use "table" for lists of objects with props: {title: string, data: {headers: array, rows: array}}
+- Use "bar_chart" or "line_chart" for time-series data with props: {data: array, options: {xKey: string, yKey: string}}
+
+**Example Response:**
+{
+  "summary": "Here are your portfolio holdings showing 3 stocks with a total value of $15,234.",
+  "render_instructions": [
+    {
+      "component": "key_value_pairs",
+      "props": {
+        "title": "Portfolio Summary",
+        "data": {"Total Value": "$15,234", "Number of Holdings": 3}
+      }
+    }
+  ]
+}
+
+Respond with ONLY the JSON object, no additional text.`;
+
     try {
-      // JSON mode enforced in the helper
       const result = await callOpenRouter({
         messages: [{ role: "system", content: systemPrompt }],
         jsonMode: true,
       });
+      
+      console.log('Generated final response:', result);
+      
+      // Validate the response structure more thoroughly
+      if (!result || typeof result !== 'object') {
+        throw new Error('Response is not an object');
+      }
+      
+      if (!result.summary || typeof result.summary !== 'string') {
+        throw new Error('Missing or invalid summary field');
+      }
+      
+      if (!Array.isArray(result.render_instructions)) {
+        throw new Error('Missing or invalid render_instructions field');
+      }
+      
       return result;
     } catch (error) {
       console.error("Error generating final formatted response:", error);
+      
+      // Create a better fallback response
+      const fallbackSummary = `I found ${Array.isArray(rawData) ? rawData.length : 1} data record(s) for your query.`;
+      const fallbackRenderInstructions = [];
+      
+      // Try to create a basic table from the raw data
+      if (Array.isArray(rawData) && rawData.length > 0) {
+        const firstItem = rawData[0];
+        if (firstItem && typeof firstItem === 'object') {
+          const headers = Object.keys(firstItem);
+          const rows = rawData.map(item => headers.map(header => item[header] || ''));
+          
+          fallbackRenderInstructions.push({
+            component: 'table',
+            props: {
+              title: 'Query Results',
+              data: { headers, rows }
+            }
+          });
+        }
+      } else if (rawData && typeof rawData === 'object') {
+        fallbackRenderInstructions.push({
+          component: 'key_value_pairs',
+          props: {
+            title: 'Query Results',
+            data: rawData
+          }
+        });
+      }
+      
       return {
-        summary: "I found the data, but had trouble formatting it. Here is the raw data.",
-        render_instructions: [{ component: 'key_value_pairs', props: { title: 'Raw Data', data: rawData } }]
+        summary: fallbackSummary,
+        render_instructions: fallbackRenderInstructions
       };
     }
   };
@@ -258,20 +332,25 @@ Based on the schema, write a single, efficient PostgreSQL query for the followin
 
       const finalResponse = await generateFinalResponse({ query, rawData });
 
-      // --- FIX: Validate the AI response before setting state ---
-      const messageContent = (finalResponse && typeof finalResponse.summary === 'string')
-        ? finalResponse.summary
-        : 'I found data but could not generate a summary.'; // Fallback text
-
-      const renderInstructions = (finalResponse && Array.isArray(finalResponse.render_instructions))
-        ? finalResponse.render_instructions
-        : []; // Fallback empty array
+      // Validate the final response before setting state
+      let messageContent = 'I found data but could not generate a summary.';
+      let renderInstructions = [];
+      
+      if (finalResponse && typeof finalResponse === 'object') {
+        if (typeof finalResponse.summary === 'string' && finalResponse.summary.length > 0) {
+          messageContent = finalResponse.summary;
+        }
+        
+        if (Array.isArray(finalResponse.render_instructions)) {
+          renderInstructions = finalResponse.render_instructions;
+        }
+      }
 
       setMessages(prev => [...prev, {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
-        content: messageContent, // Use the validated string
-        renderInstructions: renderInstructions, // Use the validated array
+        content: messageContent,
+        renderInstructions: renderInstructions,
         rawData,
         charts,
       }]);
@@ -290,7 +369,6 @@ Based on the schema, write a single, efficient PostgreSQL query for the followin
   };
 
   // --- Animation & Gesture Logic ---
-  // This section remains the same
   const dragGesture = Gesture.Pan()
     .onStart(() => { dragStartTranslateY.current = translateY._value; })
     .onUpdate((event) => {

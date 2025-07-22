@@ -74,7 +74,7 @@ async function callOpenRouter({ messages, model = ROUTER_MODEL, apiKey = OPENROU
 // --- Constants ---
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const PANEL_TOTAL_HEIGHT = SCREEN_HEIGHT * 1;
-const MINIMIZED_PANEL_HEIGHT = SCREEN_HEIGHT * 0.57;
+const MINIMIZED_PANEL_HEIGHT = SCREEN_HEIGHT * 0.2;
 
 const SchemaRAGChatbox = ({ onClose, onMinimizeChange, navBarHeight }) => {
   // --- State and Refs ---

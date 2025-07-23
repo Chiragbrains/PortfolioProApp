@@ -12,11 +12,11 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import ConnectionErrorModal from './ConnectionErrorModal';
 import Dashboard from './Dashboard';
+import ResearchTab from './Research';
 import { TrendingUp, BarChart3, BarChart4, BarChartHorizontal, LineChart, PieChart, Users } from 'lucide-react';
 import PortfolioSummary from './PortfolioSummary';
 import Header from './components/Header';
 import SchemaRAGChatbox from './SchemaRAGChatbox';
-import GeneralChatbox from './GeneralChatbox'; // Existing
 import { setupPortfolioSubscription } from './services/portfolioService';
 import { formatTimestamp } from './utils/formatters';
 import HoldingListItem from './components/HoldingListItem';
@@ -65,6 +65,11 @@ const BottomNavBar = ({ activeTab, setActiveTab, navBarHeight }) => { // Add nav
             <TouchableOpacity style={[newStyles.navItem, { paddingTop: scaledNavItemPaddingTop }]} onPress={() => setActiveTab('dashboard')}>
                 <BarChart3 size={scaledNavTextFontSize} strokeWidth={3} color={activeTab === 'dashboard' ? newStyles.navTextActive.color : newStyles.navText.color} />
                 <Text style={[newStyles.navLabel, { fontSize: scaledNavLabelFontSize, marginTop: scaledNavLabelMarginTop }, activeTab === 'dashboard' && newStyles.navLabelActive]}>Dashboard</Text>
+            </TouchableOpacity>
+            {/* Research tab all the way right */}
+            <TouchableOpacity style={[newStyles.navItem, { paddingTop: scaledNavItemPaddingTop }]} onPress={() => setActiveTab('research')}>
+                <BarChart4 size={scaledNavTextFontSize} strokeWidth={3} color={activeTab === 'research' ? newStyles.navTextActive.color : newStyles.navText.color} />
+                <Text style={[newStyles.navLabel, { fontSize: scaledNavLabelFontSize, marginTop: scaledNavLabelMarginTop }, activeTab === 'research' && newStyles.navLabelActive]}>Research</Text>
             </TouchableOpacity>
         </View>
     );
@@ -799,6 +804,8 @@ export default function App() {
                 );
             case 'dashboard':
                 return <Dashboard />;
+            case 'research':
+                return <ResearchTab />;
             default:
                 return null;
         }
